@@ -28,7 +28,7 @@ def check_database(cfg) -> str | None:
         with db.connect(cfg.database_url, cfg.tz.key) as conn:
             conn.execute("SELECT 1 FROM consultations LIMIT 1")
     except db.psycopg.errors.UndefinedTable:
-        return "les tables n'existent pas : lancer d'abord `python -m pmmp_collector init-db`."
+        return "les tables n'existent pas : appliquer d'abord db/schema.sql (README §4.3)."
     except db.psycopg.Error as exc:
         return f"connexion PostgreSQL impossible, vérifier PMMP_DATABASE_URL dans .env : {exc}"
     return None
@@ -75,8 +75,19 @@ def cmd_init_db(args) -> int:
     if not cfg.database_url:
         print("PMMP_DATABASE_URL n'est pas renseignée.", file=sys.stderr)
         return 1
-    with db.connect(cfg.database_url, cfg.tz.key) as conn:
-        db.init_schema(conn)
+    try:
+        with db.connect(cfg.database_url, cfg.tz.key) as conn:
+            db.init_schema(conn)
+    except db.psycopg.errors.InsufficientPrivilege as exc:
+        print(
+            f"Droits insuffisants ({exc.diag.message_primary}). Le compte applicatif (pmmp_app) ne peut "
+            "pas modifier le schéma : l'appliquer en superutilisateur, voir README §4.3.",
+            file=sys.stderr,
+        )
+        return 1
+    except db.psycopg.Error as exc:
+        print(f"Connexion PostgreSQL impossible, vérifier PMMP_DATABASE_URL dans .env : {exc}", file=sys.stderr)
+        return 1
     print("Schéma appliqué.")
     return 0
 
