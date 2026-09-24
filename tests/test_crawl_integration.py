@@ -21,6 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 UA = "TACHFIR-VeilleMarchesPublics/1.0 (+contact: sales@tachfir.com)"
 DELAY = 1.0
+DETAIL = (ROOT / "fixtures/synthetic/detail_987654.html").read_text(encoding="utf-8")
 N_ROWS = 6
 
 ROW = """<tr>
@@ -44,6 +45,7 @@ LISTING = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
 
 class FakePortal(BaseHTTPRequestHandler):
     detail_status = 200  # 503 -> panne simulée sur les fiches détail
+    detail_body = None  # None -> fixtures/synthetic/detail_987654.html
     log: list = []
     inflight = 0
     max_inflight = 0
@@ -65,7 +67,7 @@ class FakePortal(BaseHTTPRequestHandler):
                 if cls.detail_status != 200:
                     self._reply(cls.detail_status, b"<html>Service indisponible</html>")
                 else:
-                    self._reply(200, (ROOT / "fixtures/synthetic/detail_987654.html").read_bytes())
+                    self._reply(200, cls.detail_body or DETAIL.encode("utf-8"))
             elif "Dce" in self.path:
                 self._reply(200, b"PK\x03\x04fake", "application/zip", 'attachment; filename="DCE.zip"')
             else:
@@ -92,7 +94,7 @@ class FakePortal(BaseHTTPRequestHandler):
 @pytest.fixture
 def portal():
     FakePortal.log, FakePortal.inflight, FakePortal.max_inflight = [], 0, 0
-    FakePortal.detail_status = 200
+    FakePortal.detail_status, FakePortal.detail_body = 200, None
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakePortal)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
@@ -190,3 +192,36 @@ def test_nominal_crawl_respects_collection_rules(portal, tmp_path):
     assert len(items) == N_ROWS
     assert {i["ref_consultation"] for i in items} == {str(1000 + i) for i in range(N_ROWS)}
     assert all(i["dce_statut"] == "telecharge" and i["statut"] == "en_cours" for i in items)
+
+
+TEST_DB = os.environ.get("PMMP_TEST_DATABASE_URL")
+
+
+@pytest.mark.skipif(not TEST_DB, reason="PMMP_TEST_DATABASE_URL non défini (base jetable)")
+def test_two_crawls_with_database(portal, tmp_path, monkeypatch):
+    """Deux runs complets en mode prod : upsert sans doublon, historique rattaché au run, collecte_runs."""
+    from pmmp_collector import db
+
+    conn = db.connect(TEST_DB)
+    db.init_schema(conn)
+    conn.execute("TRUNCATE historique_modifications, consultations, collecte_runs RESTART IDENTITY CASCADE")
+    monkeypatch.setenv("PMMP_MODE", "prod")
+
+    proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    assert summary["consultations_enregistrees"] == N_ROWS
+
+    FakePortal.detail_body = DETAIL.replace("20/10/2026 10:00", "30/10/2026 10:00").encode("utf-8")
+    proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+
+    runs = conn.execute("SELECT id, statut, termine_le, nb_consultations, force FROM collecte_runs ORDER BY id").fetchall()
+    assert [(r["statut"], r["nb_consultations"], r["force"]) for r in runs] == [("succes", N_ROWS, True)] * 2
+    assert all(r["termine_le"] is not None for r in runs)
+    assert conn.execute("SELECT count(*) n FROM consultations").fetchone()["n"] == N_ROWS
+    hist = conn.execute("SELECT champ, type_evenement, run_id FROM historique_modifications").fetchall()
+    assert len(hist) == 2 * N_ROWS
+    assert {(h["champ"], h["type_evenement"], h["run_id"]) for h in hist} == {
+        ("date_limite_depot", "report_date", runs[1]["id"]), ("statut", "report_date", runs[1]["id"])}
+    assert {r["statut"] for r in conn.execute("SELECT statut FROM consultations")} == {"reporte"}
+    conn.close()
