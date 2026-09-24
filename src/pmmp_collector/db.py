@@ -14,6 +14,7 @@ from pmmp_collector.history import Change
 logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "db" / "schema.sql"
+CONNECT_TIMEOUT = 10  # secondes
 
 COLUMNS = [
     "org_acronyme", "ref_consultation", "reference", "objet", "acheteur", "categorie",
@@ -54,6 +55,8 @@ def connect(url: str, timezone: str = "Africa/Casablanca") -> psycopg.Connection
         row_factory=dict_row,
         client_encoding="UTF8",
         options=f"-c timezone={timezone}",
+        # Sans délai maximal, une base arrêtée bloque le collecteur indéfiniment.
+        connect_timeout=CONNECT_TIMEOUT,
     )
     return conn
 
