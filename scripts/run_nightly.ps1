@@ -14,7 +14,10 @@ $LogFile = Join-Path $LogDir ("run_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmms
 
 $Python = Join-Path $ProjectDir ".venv\Scripts\python.exe"
 $env:PYTHONIOENCODING = "utf-8"
-& $Python -m pmmp_collector crawl *>> $LogFile
+# Redirection faite par cmd.exe et non par PowerShell : sous PowerShell 5.1, avec
+# ErrorActionPreference=Stop, la premiere ligne ecrite par Python sur stderr (tous les
+# logs Scrapy) arreterait le script, et "*>>" ecrirait le log en UTF-16.
+cmd.exe /d /c "`"$Python`" -m pmmp_collector crawl >> `"$LogFile`" 2>&1"
 $Code = $LASTEXITCODE
 Add-Content -Path $LogFile -Value ("{0} code de sortie {1} (0=succes 1=echec 2=refuse 3=partiel)" -f (Get-Date -Format s), $Code) -Encoding utf8
 
