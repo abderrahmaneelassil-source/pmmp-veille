@@ -14,3 +14,4 @@ storage/raw_html/*
 storage/logs/*
 !storage/**/.gitkeep
 # fixtures/live/ EST versionné : c'est le jeu de test réel pour la passation.
+.idea/
