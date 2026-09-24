@@ -150,7 +150,9 @@ faite : passez à la suivante.
 
 ### 4.3 Renseigner la connexion dans `.env`
 
-Dans le fichier `.env` à la racine du projet (voir §5 pour le créer), remplissez :
+Créez d'abord le fichier `.env` à la racine du projet s'il n'existe pas
+(`cp .env.example .env`, ou `Copy-Item .env.example .env` sous PowerShell ; détail
+des variables au §5), puis remplissez :
 
 ```ini
 PMMP_DATABASE_URL=postgresql://pmmp:mot_de_passe@localhost:5432/pmmp_veille
@@ -197,6 +199,9 @@ Vous devez voir `collecte_runs`, `consultations` et `historique_modifications`.
 | `connection refused` | Service PostgreSQL arrêté, ou mauvais port (voir 4.1). |
 | `database "pmmp_veille" does not exist` | L'étape 4.2 n'a pas été faite, ou faute de frappe dans `.env`. |
 | `PMMP_DATABASE_URL n'est pas renseignée.` | Ligne vide dans `.env`, ou commande lancée hors de la racine du projet. |
+| `ÉCHEC avant démarrage … connexion PostgreSQL impossible` (au lancement de `crawl`) | Mot de passe, hôte ou base de `PMMP_DATABASE_URL` incorrects, ou service arrêté. Aucune requête n'a été envoyée au portail. |
+| `ÉCHEC avant démarrage … les tables n'existent pas` | Lancer d'abord l'étape 4.4. |
+| `connection timeout expired` | Serveur PostgreSQL injoignable (hôte/port faux, pare-feu) : abandon après 10 s. |
 
 Tables créées (détail commenté dans `db/schema.sql`) :
 
@@ -272,8 +277,13 @@ Ce qui est produit :
 ## 7. Tests et fixtures
 
 ```bash
-pytest                       # tous les tests, hors ligne, sans base
+pytest                       # tous les tests, sans base (≈ 1 min)
 ```
+
+Aucun test n'envoie de requête au vrai portail. `tests/test_crawl_integration.py`
+lance de vrais crawls contre un **faux portail local** (`127.0.0.1`) : c'est lui
+qui vérifie les règles de collecte sur les requêtes réellement envoyées
+(circuit breaker, User-Agent, une requête à la fois, pause entre requêtes).
 
 - `fixtures/synthetic/` : pages **synthétiques** qui reproduisent la structure
   supposée du portail. Elles servent aux tests unitaires.
@@ -281,17 +291,53 @@ pytest                       # tous les tests, hors ligne, sans base
   récupérée y est copiée automatiquement. `tests/test_live_fixtures.py` les
   rejoue alors pour vérifier que les sélecteurs extraient bien les champs
   obligatoires.
-- Tests PostgreSQL (upsert, historique, clôture) sur une base **jetable** :
-  `PMMP_TEST_DATABASE_URL=postgresql://... pytest tests/test_db.py`
+- Tests PostgreSQL (upsert, historique, clôture, cycle complet sur les pages
+  réelles) : ils sont **ignorés** tant que `PMMP_TEST_DATABASE_URL` n'est pas
+  défini. Ils **vident les tables** : utilisez une base jetable `pmmp_test`,
+  jamais `pmmp_veille`. Création (une fois) avec le superutilisateur :
+
+  ```powershell
+  psql -U postgres -h localhost -c "CREATE DATABASE pmmp_test ENCODING 'UTF8' TEMPLATE template0;"
+  psql -U postgres -h localhost -c "ALTER DATABASE pmmp_test SET timezone TO 'Africa/Casablanca';"
+  ```
+
+  Lancement :
+
+  ```powershell
+  # Windows (PowerShell)
+  $env:PMMP_TEST_DATABASE_URL = "postgresql://postgres:MOT_DE_PASSE_POSTGRES@localhost:5432/pmmp_test"
+  pytest
+  Remove-Item Env:PMMP_TEST_DATABASE_URL
+  ```
+
+  ```bash
+  # Linux
+  PMMP_TEST_DATABASE_URL=postgresql://postgres:...@localhost:5432/pmmp_test pytest
+  ```
 
 **Capturer les fixtures réelles** (à faire une fois, de préférence dans la
 fenêtre de nuit) :
 
 ```bash
+# Linux
 PMMP_MODE=test python -m pmmp_collector crawl --max-pages 1 --max-items 5
+```
+
+```powershell
+# Windows (PowerShell)
+$env:PMMP_MODE = "test"
+python -m pmmp_collector crawl --max-pages 1 --max-items 5
+Remove-Item Env:PMMP_MODE
+```
+
+Puis :
+
+```bash
 pytest tests/test_live_fixtures.py -v
 git add fixtures/live   # ces pages servent à la passation
 ```
+
+Hors fenêtre horaire, la commande est refusée : ajoutez `--force` (run plafonné).
 
 ## 8. Planifier l'exécution nocturne
 
@@ -340,9 +386,11 @@ changement du HTML du portail.
 
 ## 10. Points à valider sur le site réel (reprise du projet)
 
-Le code a été testé sur des fixtures synthétiques et contre un faux portail
-local. Il n'a **pas encore été exécuté contre le vrai portail**. À vérifier dès
-la première capture de fixtures réelles :
+Une capture réelle limitée a été faite le 23/09/2026 (formulaire de recherche,
+1 page de liste, 5 fiches détail, 5 pages DCE intermédiaires) : ces pages sont
+dans `fixtures/live/` et rejouées par `tests/test_live_fixtures.py` et
+`tests/test_db.py`. Le crawl complet (toutes les pages, en fenêtre de nuit)
+n'a pas encore été fait. Points à surveiller :
 
 1. **URL** : corrigée après la première capture. `/pmmp/` renvoie la page
    d'accueil ; la liste est à la racine du domaine (lien « Consultations en cours »).
@@ -350,7 +398,9 @@ la première capture de fixtures réelles :
    l'extraction repose surtout sur les libellés visibles (« Objet : »,
    « Acheteur public : »…), avec en secours les ids Atexo connus. Les noms des
    contrôles de pagination (`…numPageTop`, `…DefaultButtonTop`) sont détectés
-   dans la page.
+   dans la page. Validés sur les pages capturées ; `reservation_pme` et
+   `date_publication` n'apparaissent pas sur les fiches détail réelles
+   (`date_publication` vient de la liste).
 3. **Téléchargement du DCE** : si le lien mène à une page intermédiaire
    (formulaire, identification, acceptation de conditions), le collecteur
    l'archive, met `dce_statut = 'page_intermediaire'` et **ne la soumet pas**.
