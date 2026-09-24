@@ -89,17 +89,26 @@ def extract_labelled(scope) -> dict[str, str]:
             sib = lab.xpath("following-sibling::*[1]")
             if sib and not _is_label(sib[0]):
                 value = node_text(sib[0])
+        if not value.strip(" :") and parent and node_text(parent[0]) == ltxt:
+            # Libellé seul dans son bloc (fiche détail réelle : <div id="panel..."><div class="intitule">
+            # Date et heure limite ... :</div></div><div class="content-bloc">12/11/2026 10:00</div>).
+            sib = parent[0].xpath("following-sibling::*[1]")
+            if sib and not _is_label(sib[0]):
+                value = node_text(sib[0])
         value = norm_text(value).lstrip(": ").strip()
         if value:
             out[key] = value
     return out
 
 
-def pick(labelled: dict[str, str], *keys: str) -> str | None:
+def pick(labelled: dict[str, str], *keys: str, prefix: bool = True) -> str | None:
+    """Valeur du premier libellé trouvé : correspondance exacte, puis (si prefix) par préfixe."""
     folded = [fold(k) for k in keys]
     for k in folded:
         if labelled.get(k):
             return labelled[k]
+    if not prefix:
+        return None
     for k in folded:
         for lk, v in labelled.items():
             if lk.startswith(k) and v:
@@ -324,7 +333,8 @@ def parse_detail_page(sel: Selector, page_url: str) -> dict:
             " ".join(f"{k} {v}" for k, v in lab.items()) + " " + text
         ),
         "statut_portail": interpret_statut(f"statut {statut_label}" if statut_label else text),
-        "resultat": pick(lab, "attributaire", "resultat", "titulaire"),
+        # "resultat" en correspondance exacte : par préfixe, il attrape "Résultats par page" (pagination).
+        "resultat": pick(lab, "attributaire", "titulaire") or pick(lab, "resultat", prefix=False),
         "dce_urls": extract_dce_links(sel, page_url),
         "captcha": looks_like_captcha(sel.get()),
     }

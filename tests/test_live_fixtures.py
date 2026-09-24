@@ -40,6 +40,8 @@ def test_real_detail_page(path):
     detail = parse_detail_page(read(path), BASE)
     assert detail["objet"], "objet introuvable sur la fiche détail"
     assert detail["date_limite_depot"], "date limite introuvable sur la fiche détail"
+    # Aucune de ces fiches n'a de résultat publié : ne pas confondre avec "Résultats par page".
+    assert detail["resultat"] is None, detail["resultat"]
     merged = merge_listing_detail({"org_acronyme": org, "ref_consultation": ref, "url_detail": f"{BASE}?x"}, detail)
     Consultation.model_validate(merged)
 
