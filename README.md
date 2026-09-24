@@ -78,17 +78,20 @@ pip install -e .
 ## 4. Créer la base
 
 Cette étape se fait **une seule fois**, sur la machine où tourne PostgreSQL
-(votre PC en local, ou le serveur Linux). Elle crée trois choses :
+(votre PC en local, ou le serveur Linux). Elle crée :
 
-1. un **utilisateur** PostgreSQL `pmmp`, propriétaire des données du collecteur ;
-2. une **base** `pmmp_veille`, en UTF-8 (indispensable pour l'arabe) ;
-3. les **tables**, à partir de `db/schema.sql`.
+1. une **base** `pmmp_veille`, en UTF-8 (indispensable pour l'arabe) ;
+2. un rôle **`pmmp`**, propriétaire de la base et des tables, **sans connexion
+   possible** : il ne sert qu'à faire évoluer le schéma ;
+3. les **tables**, à partir de `db/schema.sql` ;
+4. un compte **`pmmp_app`**, le seul utilisé par le collecteur : il lit, insère
+   et met à jour les données du projet, **rien d'autre** (ni suppression, ni
+   modification du schéma, ni accès aux autres bases). Droits détaillés dans
+   `db/roles.sql`.
 
 Vous aurez besoin du **mot de passe du superutilisateur `postgres`**, choisi
-lors de l'installation de PostgreSQL. Dans les commandes ci-dessous, remplacez
-`mot_de_passe` par un mot de passe de votre choix pour l'utilisateur `pmmp`.
-Évitez les caractères `@ : / ? # %` : ils compliquent l'URL de connexion (voir
-étape 4.3).
+lors de l'installation de PostgreSQL. Chaque commande `psql -U postgres` le
+demande.
 
 ### 4.1 Vérifier que PostgreSQL tourne
 
@@ -114,15 +117,12 @@ sudo apt install postgresql          # Debian/Ubuntu, si ce n'est pas déjà fai
 sudo systemctl status postgresql     # doit être "active (running)"
 ```
 
-### 4.2 Créer l'utilisateur et la base
+### 4.2 Créer le propriétaire et la base
 
-Ouvrez un terminal (n'importe quel dossier). Chaque commande `psql -U postgres`
-demande le mot de passe de `postgres`.
-
-**Windows (PowerShell)** :
+**Windows (PowerShell)**, depuis n'importe quel dossier :
 
 ```powershell
-psql -U postgres -h localhost -c "CREATE ROLE pmmp LOGIN PASSWORD 'mot_de_passe';"
+psql -U postgres -h localhost -c "CREATE ROLE pmmp NOLOGIN;"
 psql -U postgres -h localhost -c "CREATE DATABASE pmmp_veille OWNER pmmp ENCODING 'UTF8' TEMPLATE template0;"
 psql -U postgres -h localhost -c "ALTER DATABASE pmmp_veille SET timezone TO 'Africa/Casablanca';"
 ```
@@ -130,7 +130,7 @@ psql -U postgres -h localhost -c "ALTER DATABASE pmmp_veille SET timezone TO 'Af
 **Linux** (on passe par le compte système `postgres`, sans mot de passe) :
 
 ```bash
-sudo -u postgres psql -c "CREATE ROLE pmmp LOGIN PASSWORD 'mot_de_passe';"
+sudo -u postgres psql -c "CREATE ROLE pmmp NOLOGIN;"
 sudo -u postgres psql -c "CREATE DATABASE pmmp_veille OWNER pmmp ENCODING 'UTF8' TEMPLATE template0;"
 sudo -u postgres psql -c "ALTER DATABASE pmmp_veille SET timezone TO 'Africa/Casablanca';"
 ```
@@ -139,55 +139,79 @@ Réponses attendues : `CREATE ROLE`, `CREATE DATABASE`, `ALTER DATABASE`.
 Si une commande répond « existe déjà » (*already exists*), l'étape a déjà été
 faite : passez à la suivante.
 
-> **Sans ligne de commande** : pgAdmin 4 (installé avec PostgreSQL sous
-> Windows) permet de faire la même chose. Connectez-vous au serveur, clic droit
-> sur *Login/Group Roles* → *Create* (nom `pmmp`, onglet *Definition* : mot de
-> passe, onglet *Privileges* : *Can login*), puis clic droit sur *Databases* →
-> *Create* (nom `pmmp_veille`, *Owner* `pmmp`, onglet *Definition* : *Encoding*
-> `UTF8`, *Template* `template0`). Ouvrez ensuite le *Query Tool* sur
-> `pmmp_veille` et exécutez
-> `ALTER DATABASE pmmp_veille SET timezone TO 'Africa/Casablanca';`.
+### 4.3 Créer les tables
 
-### 4.3 Renseigner la connexion dans `.env`
+Depuis la **racine du projet**. Les tables sont créées au nom de `pmmp`
+(`SET ROLE pmmp`) pour qu'il en soit le propriétaire :
+
+```powershell
+psql -U postgres -h localhost -d pmmp_veille -c "SET ROLE pmmp" -f db/schema.sql
+```
+
+(Linux : `sudo -u postgres psql -d pmmp_veille -c "SET ROLE pmmp" -f db/schema.sql`.)
+
+Le script est **idempotent** : on peut le rejouer sans perdre de données
+(c'est aussi la commande à relancer après une mise à jour de `db/schema.sql`).
+
+### 4.4 Créer le compte de l'application
+
+Générez un mot de passe fort (32 caractères, sans caractère spécial d'URL) :
+
+```bash
+python -c "import secrets, string; a = string.ascii_letters + string.digits + '-_'; print(''.join(secrets.choice(a) for _ in range(32)))"
+```
+
+Puis, depuis la racine du projet (le mot de passe passe par une variable
+d'environnement : il n'apparaît ni dans le script ni dans l'historique de `psql`) :
+
+```powershell
+$env:PMMP_APP_PASSWORD = "<mot de passe généré>"
+psql -U postgres -h localhost -d pmmp_veille -f db/roles.sql
+Remove-Item Env:PMMP_APP_PASSWORD
+```
+
+```bash
+# Linux
+PMMP_APP_PASSWORD='<mot de passe généré>' sudo --preserve-env=PMMP_APP_PASSWORD -u postgres psql -d pmmp_veille -f db/roles.sql
+```
+
+Réponse attendue : `Rôles appliqués : pmmp (propriétaire, NOLOGIN), pmmp_app (application).`
+Pour **changer le mot de passe** plus tard, relancez simplement cette étape avec
+un nouveau mot de passe, puis mettez `.env` à jour (4.5).
+
+> Le script retire à `PUBLIC` le droit de connexion aux **autres** bases du
+> serveur (sinon `pmmp_app` pourrait s'y connecter). Sur un serveur partagé avec
+> d'autres applications, leurs rôles doivent avoir un `GRANT CONNECT` explicite.
+
+### 4.5 Renseigner la connexion dans `.env`
 
 Créez d'abord le fichier `.env` à la racine du projet s'il n'existe pas
 (`cp .env.example .env`, ou `Copy-Item .env.example .env` sous PowerShell ; détail
 des variables au §5), puis remplissez :
 
 ```ini
-PMMP_DATABASE_URL=postgresql://pmmp:mot_de_passe@localhost:5432/pmmp_veille
+PMMP_DATABASE_URL=postgresql://pmmp_app:<mot de passe généré>@localhost:5432/pmmp_veille
 ```
 
 Format : `postgresql://<utilisateur>:<mot de passe>@<hôte>:<port>/<base>`.
-Remplacez `localhost` par l'adresse du serveur si la base est distante. Si le
-mot de passe contient un caractère spécial, encodez-le (`@` → `%40`,
-`:` → `%3A`, `/` → `%2F`, `#` → `%23`, `%` → `%25`).
+Remplacez `localhost` par l'adresse du serveur si la base est distante. Si un
+mot de passe choisi à la main contient un caractère spécial, encodez-le
+(`@` → `%40`, `:` → `%3A`, `/` → `%2F`, `#` → `%23`, `%` → `%25`).
+`.env` n'est jamais commité (il est dans `.gitignore`).
 
-### 4.4 Créer les tables
-
-Depuis la **racine du projet**, venv activé (voir §3) :
-
-```bash
-python -m pmmp_collector init-db     # lit PMMP_DATABASE_URL dans .env
-```
-
-Réponse attendue : `Schéma appliqué.` Si `import psycopg` est bloqué sous
-Windows (voir la note du §3), utilisez `psql` à la place :
+### 4.6 Vérifier
 
 ```bash
-psql "postgresql://pmmp:mot_de_passe@localhost:5432/pmmp_veille" -f db/schema.sql
+psql "postgresql://pmmp_app:<mot de passe généré>@localhost:5432/pmmp_veille" -c "\dt"
 ```
 
-Le script est **idempotent** : on peut le rejouer sans perdre de données
-(utile après une mise à jour de `db/schema.sql`).
+Vous devez voir `collecte_runs`, `consultations` et `historique_modifications`
+(propriétaire `pmmp`).
 
-### 4.5 Vérifier
-
-```bash
-psql "postgresql://pmmp:mot_de_passe@localhost:5432/pmmp_veille" -c "\dt"
-```
-
-Vous devez voir `collecte_runs`, `consultations` et `historique_modifications`.
+> `python -m pmmp_collector init-db` applique aussi `db/schema.sql`, mais avec le
+> compte de `PMMP_DATABASE_URL` : il fonctionne sur une base de test dont vous
+> êtes propriétaire (§7), pas avec `pmmp_app` qui n'a pas le droit de modifier
+> le schéma (message « Droits insuffisants »).
 
 **Erreurs fréquentes**
 
@@ -195,12 +219,15 @@ Vous devez voir `collecte_runs`, `consultations` et `historique_modifications`.
 |---|---|
 | `psql : terme non reconnu` / `command not found` | `psql` n'est pas dans le `PATH` (voir 4.1). |
 | `password authentication failed for user "postgres"` | Mauvais mot de passe `postgres` (celui de l'installation). |
-| `password authentication failed for user "pmmp"` | Le mot de passe de `.env` ne correspond pas à celui de `CREATE ROLE`. Le changer : `psql -U postgres -h localhost -c "ALTER ROLE pmmp PASSWORD 'nouveau';"` |
+| `password authentication failed for user "pmmp_app"` | Le mot de passe de `.env` ne correspond pas à celui de l'étape 4.4 : refaire 4.4 puis 4.5. |
+| `password authentication failed for user "pmmp"` | Normal : `pmmp` n'a plus de connexion. Utiliser `pmmp_app` (application) ou `postgres` (administration, DataGrip…). |
+| `permission denied for database …` | `pmmp_app` n'a accès qu'à `pmmp_veille` : vérifier le nom de base dans `.env`. |
 | `connection refused` | Service PostgreSQL arrêté, ou mauvais port (voir 4.1). |
 | `database "pmmp_veille" does not exist` | L'étape 4.2 n'a pas été faite, ou faute de frappe dans `.env`. |
 | `PMMP_DATABASE_URL n'est pas renseignée.` | Ligne vide dans `.env`, ou commande lancée hors de la racine du projet. |
 | `ÉCHEC avant démarrage … connexion PostgreSQL impossible` (au lancement de `crawl`) | Mot de passe, hôte ou base de `PMMP_DATABASE_URL` incorrects, ou service arrêté. Aucune requête n'a été envoyée au portail. |
-| `ÉCHEC avant démarrage … les tables n'existent pas` | Lancer d'abord l'étape 4.4. |
+| `ÉCHEC avant démarrage … les tables n'existent pas` | Faire d'abord l'étape 4.3. |
+| `permission denied for table …` | Droits de `pmmp_app` absents : relancer l'étape 4.4. |
 | `connection timeout expired` | Serveur PostgreSQL injoignable (hôte/port faux, pare-feu) : abandon après 10 s. |
 
 Tables créées (détail commenté dans `db/schema.sql`) :
@@ -416,6 +443,7 @@ n'a pas encore été fait. Points à surveiller :
 pmmp_collector/
 ├── README.md, requirements.txt, pyproject.toml, scrapy.cfg, .env.example
 ├── db/schema.sql                 tables commentées + vue de supervision
+├── db/roles.sql                  rôles pmmp (propriétaire) / pmmp_app (application)
 ├── src/pmmp_collector/
 │   ├── __main__.py               CLI : crawl [--force], init-db, status
 │   ├── config.py                 lecture/validation du .env, fenêtre horaire
