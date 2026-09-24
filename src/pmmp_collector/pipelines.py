@@ -64,7 +64,7 @@ class PostgresPipeline:
         from pmmp_collector import db  # import paresseux : libpq n'est requis qu'avec une base
 
         self.db = db
-        self.conn = db.connect(self.cfg.database_url)
+        self.conn = db.connect(self.cfg.database_url, self.cfg.tz.key)
 
     def close_spider(self, spider=None):
         if self.conn is not None:
@@ -96,7 +96,7 @@ class PostgresPipeline:
                 record["org_acronyme"], record["ref_consultation"],
             )
             if self.conn.closed:
-                self.conn = self.db.connect(self.cfg.database_url)
+                self.conn = self.db.connect(self.cfg.database_url, self.cfg.tz.key)
             raise DropItem("erreur base de données") from None
 
         stats.inc_value("pmmp/db_upserts")

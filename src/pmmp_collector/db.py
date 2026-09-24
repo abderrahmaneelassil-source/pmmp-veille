@@ -46,13 +46,14 @@ RETURNING id
 """
 
 
-def connect(url: str) -> psycopg.Connection:
+def connect(url: str, timezone: str = "Africa/Casablanca") -> psycopg.Connection:
+    """`timezone` : fuseau de la session (PMMP_TIMEZONE), utilisé pour afficher les timestamptz."""
     conn = psycopg.connect(
         url,
         autocommit=True,
         row_factory=dict_row,
         client_encoding="UTF8",
-        options="-c timezone=Africa/Casablanca",
+        options=f"-c timezone={timezone}",
     )
     return conn
 

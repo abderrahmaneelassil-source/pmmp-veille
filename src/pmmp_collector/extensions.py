@@ -53,7 +53,7 @@ class RunRecorder:
 
         self.db = db
         try:
-            self.conn = db.connect(self.cfg.database_url)
+            self.conn = db.connect(self.cfg.database_url, self.cfg.tz.key)
             self.run_id = db.start_run(self.conn, self.cfg.mode, getattr(spider, "force", False))
             spider.run_id = self.run_id
             logger.info("Run n°%s enregistré", self.run_id)

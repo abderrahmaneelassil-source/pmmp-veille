@@ -50,7 +50,7 @@ def cmd_init_db(args) -> int:
     if not cfg.database_url:
         print("PMMP_DATABASE_URL n'est pas renseignée.", file=sys.stderr)
         return 1
-    with db.connect(cfg.database_url) as conn:
+    with db.connect(cfg.database_url, cfg.tz.key) as conn:
         db.init_schema(conn)
     print("Schéma appliqué.")
     return 0
