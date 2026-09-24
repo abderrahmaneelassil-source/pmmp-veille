@@ -1,0 +1,9 @@
+scrapy>=2.19,<3
+pydantic>=2.6,<3
+psycopg[binary]>=3.1,<4
+python-dotenv>=1.0
+# Base de fuseaux horaires pour zoneinfo (indispensable sous Windows)
+tzdata>=2024.1
+
+# Tests
+pytest>=8

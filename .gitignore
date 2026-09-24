@@ -1,0 +1,16 @@
+﻿.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# Données collectées : volumineuses, jamais dans git
+storage/*
+!storage/dce/
+!storage/raw_html/
+!storage/logs/
+storage/dce/*
+storage/raw_html/*
+storage/logs/*
+!storage/**/.gitkeep
+# fixtures/live/ EST versionné : c'est le jeu de test réel pour la passation.
