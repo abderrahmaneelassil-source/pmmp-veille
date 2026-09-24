@@ -107,13 +107,13 @@ def closed_window() -> str:
     return f"{start:%H:%M}-{end:%H:%M}"
 
 
-def run_crawl(portal, tmp_path, *args):
+def run_crawl(portal, tmp_path, *args, database_url=""):
     env = {
         **os.environ,
         "PMMP_BASE_URL": f"http://127.0.0.1:{portal.server_port}/",
         "PMMP_SEARCH_PATH": "liste.html",
-        "PMMP_DATABASE_URL": "",
-        "PMMP_MODE": "test",
+        "PMMP_DATABASE_URL": database_url,
+        "PMMP_MODE": os.environ.get("PMMP_MODE", "test"),
         "PMMP_USER_AGENT": UA,
         "PMMP_DOWNLOAD_DELAY": str(DELAY),
         "PMMP_ALLOWED_WINDOW": closed_window(),
@@ -138,6 +138,19 @@ def test_refuses_outside_window_without_any_request(portal, tmp_path):
     assert proc.returncode == 2, proc.stderr
     assert "REFUS" in proc.stderr
     assert FakePortal.log == []
+
+
+@pytest.mark.parametrize("mode,url,message", [
+    ("prod", "", "PMMP_DATABASE_URL est obligatoire"),
+    ("test", "postgresql://pmmp:x@127.0.0.1:1/pmmp_veille", "connexion PostgreSQL impossible"),
+])
+def test_unusable_database_fails_fast_with_clear_message(portal, tmp_path, monkeypatch, mode, url, message):
+    monkeypatch.setenv("PMMP_MODE", mode)
+    proc, summary = run_crawl(portal, tmp_path, "--force", database_url=url)
+    assert proc.returncode == 1
+    assert message in proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert FakePortal.log == [] and summary is None
 
 
 def test_circuit_breaker_stops_real_crawl(portal, tmp_path):

@@ -13,6 +13,27 @@ os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "pmmp_collector.settings")
 from pmmp_collector.config import ConfigError, load_config  # noqa: E402
 
 
+def check_database(cfg) -> str | None:
+    """Message d'erreur si la base n'est pas utilisable, sinon None.
+
+    Vérifié avant de lancer Scrapy : sinon l'erreur survient dans open_spider et
+    se termine en traces Twisted illisibles."""
+    if not cfg.database_url:
+        if cfg.is_test:
+            return None  # mode test sans base : items écrits dans storage/test_items.jsonl
+        return "PMMP_DATABASE_URL est obligatoire en mode prod (voir .env)."
+    from pmmp_collector import db
+
+    try:
+        with db.connect(cfg.database_url, cfg.tz.key) as conn:
+            conn.execute("SELECT 1 FROM consultations LIMIT 1")
+    except db.psycopg.errors.UndefinedTable:
+        return "les tables n'existent pas : lancer d'abord `python -m pmmp_collector init-db`."
+    except db.psycopg.Error as exc:
+        return f"connexion PostgreSQL impossible, vérifier PMMP_DATABASE_URL dans .env : {exc}"
+    return None
+
+
 def cmd_crawl(args) -> int:
     cfg = load_config()
     if not cfg.in_window() and not args.force:
@@ -23,6 +44,10 @@ def cmd_crawl(args) -> int:
             file=sys.stderr,
         )
         return 2
+    problem = check_database(cfg)
+    if problem:
+        print(f"ÉCHEC avant démarrage (aucune requête envoyée au portail) : {problem}", file=sys.stderr)
+        return 1
 
     from scrapy.crawler import CrawlerProcess
     from scrapy.utils.project import get_project_settings
