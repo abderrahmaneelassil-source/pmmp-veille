@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 import scrapy
 from scrapy.exceptions import CloseSpider, IgnoreRequest
 from scrapy.http import FormRequest
+from scrapy.spidermiddlewares.httperror import HttpError
 
 from pmmp_collector.config import load_config
 from pmmp_collector.parsers import (
@@ -39,6 +40,13 @@ def _truthy(value) -> bool:
 
 def _int_or(value, default: int) -> int:
     return int(value) if value not in (None, "") else default
+
+
+def _cancelled_by_us(failure) -> bool:
+    """Requête annulée par nos middlewares (circuit breaker, fenêtre horaire) : rien à signaler.
+
+    HttpError (réponse 404, 500...) hérite aussi d'IgnoreRequest : c'est une vraie erreur."""
+    return bool(failure.check(IgnoreRequest)) and not failure.check(HttpError)
 
 
 class PmmpSpider(scrapy.Spider):
@@ -210,7 +218,7 @@ class PmmpSpider(scrapy.Spider):
         )
 
     def listing_failed(self, failure):
-        if failure.check(IgnoreRequest):
+        if _cancelled_by_us(failure):
             return
         self.crawler.stats.inc_value("pmmp/listing_errors")
         logger.error("Échec de la page de liste %s : %r", failure.request.url, failure.value)
@@ -247,7 +255,7 @@ class PmmpSpider(scrapy.Spider):
         yield item
 
     def detail_failed(self, failure):
-        if failure.check(IgnoreRequest):
+        if _cancelled_by_us(failure):
             return
         self.crawler.stats.inc_value("pmmp/detail_errors")
         listing = failure.request.cb_kwargs.get("listing", {})
@@ -305,7 +313,7 @@ class PmmpSpider(scrapy.Spider):
         yield from self._continue_dce(item, remaining, index)
 
     def dce_failed(self, failure):
-        if failure.check(IgnoreRequest):
+        if _cancelled_by_us(failure):
             return
         kw = failure.request.cb_kwargs
         item = kw["item"]
