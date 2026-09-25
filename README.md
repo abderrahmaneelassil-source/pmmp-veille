@@ -749,3 +749,131 @@ Les autres ont besoin de la base jetable `pmmp_test` (`PMMP_TEST_DATABASE_URL`,
 voir §7). Ils la **vident**, y insèrent un petit jeu de données connu, puis
 vérifient chaque route, les filtres, la pagination, les `404` et le refus des
 écritures.
+
+## 13. Interface web (Angular)
+
+Le dossier `frontend/` contient l'interface web qui affiche les données de l'API
+(§12) : tableau de bord, recherche dans les consultations, fiche détail avec
+historique, suivi de la collecte et feuille de route. Comme l'API, elle est **en
+lecture seule** et **sans authentification** : même règle, usage sur ce poste
+uniquement (voir l'avertissement du §12).
+
+Elle ne lit jamais la base directement. Elle interroge l'API, qui doit donc tourner
+en même temps.
+
+```
+Navigateur ──▶ ng serve (port 4200) ──/api/…──▶ API FastAPI (port 8000) ──▶ PostgreSQL
+```
+
+En développement, le serveur Angular (`ng serve`) renvoie chaque appel `/api/…` vers
+`http://127.0.0.1:8000/…` (fichier `frontend/proxy.conf.json`). Le navigateur ne
+parle qu'au port 4200 : aucun réglage CORS n'est nécessaire côté API, et `api/`
+n'a pas été modifié.
+
+### Prérequis (une seule fois)
+
+- **Node.js 22.22.3 ou plus (branche 22), 24.15.0 ou plus (branche 24), ou 26 et
+  au-delà** : versions exigées par Angular 22. Testé avec Node 24.15.0 et
+  npm 11.12.1. Vérifier avec `node -v`.
+- Installer les dépendances de l'interface :
+
+  ```powershell
+  cd pmmp_collector\frontend
+  npm install
+  ```
+
+  Angular CLI n'a pas besoin d'être installé globalement : `npm` utilise celui du
+  projet (`frontend/node_modules`).
+
+### Lancer (deux terminaux)
+
+1. **Terminal 1 : l'API** (§12), depuis la racine du projet :
+
+   ```powershell
+   cd pmmp_collector
+   .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+2. **Terminal 2 : l'interface**, depuis `frontend/` :
+
+   ```powershell
+   cd pmmp_collector\frontend
+   npm start
+   ```
+
+   `npm start` lance `ng serve` avec le proxy. L'interface est prête quand le
+   terminal affiche `Local: http://localhost:4200/`.
+
+3. Ouvrir **<http://localhost:4200>** dans le navigateur.
+
+Arrêt : `Ctrl+C` dans chaque terminal. Si l'API n'est pas lancée, l'interface
+s'ouvre quand même et affiche sur chaque page « L'API ne répond pas », avec la
+commande à lancer.
+
+### Pages
+
+| Page | Contenu |
+|---|---|
+| Tableau de bord | Dernière collecte (statut, horaires, durée, compteurs, erreurs), santé de l'API et de la base, les 5 prochaines échéances. |
+| Consultations | Recherche par **acheteur** ou par **catégorie** (texte contenu, sur toute la base), filtres avancés (statut, date limite du… au…, bornes incluses, résultats par page), pagination. La recherche et les filtres sont dans l'adresse de la page : un lien partagé rouvre la même recherche. |
+| Fiche consultation | Tous les champs, liens DCE et « Ouvrir sur le portail » (nouvel onglet), historique des modifications en frise. |
+| Suivi de la collecte | Détail du dernier run, santé, légende des statuts. |
+| Feuille de route | Ce qui est disponible et ce qui est prévu (Phases 3 et 4). |
+
+Limites volontaires, alignées sur ce que l'API permet réellement :
+
+- **Pas de recherche dans l'objet** sur toute la base : l'API ne filtre que
+  l'acheteur et la catégorie. Le bouton « Recherche avancée » est désactivé
+  (Phase 3). Le champ « Filtrer l'objet » ne porte **que sur la page de résultats
+  affichée**, et son libellé le dit.
+- Alertes, suivi commercial et analyse IA apparaissent en grisé dans le menu et
+  mènent à la feuille de route : ils ne sont pas construits.
+
+### Heures affichées
+
+Les heures sont celles de l'API, déjà en heure du Maroc (§12), affichées **sans
+reconversion par le navigateur**. Les bases de fuseaux horaires ne sont pas
+d'accord sur le Maroc : mesuré le 26/09/2026, Node (ICU tz 2026a) place le Maroc en
+UTC+1 le 5/11/2026, alors que PostgreSQL et Python (tzdata 2026.4) le placent en
+UTC+0. Reconvertir dans le navigateur aurait affiché certaines dates limites avec
+une heure d'écart. Voir `frontend/src/app/core/format.ts`.
+
+### Codes de statut des runs
+
+La page « Suivi de la collecte » affiche la correspondance entre le statut
+enregistré en base (`collecte_runs.statut`) et le code de sortie du collecteur
+(`LastTaskResult` de la tâche planifiée) : `succes` = 0, `echec` = 1,
+`refuse` = 2, `partiel` = 3. Le code 4 (un autre run déjà en cours) n'est jamais
+enregistré en base, donc jamais visible dans l'interface.
+
+### Tests
+
+```powershell
+cd pmmp_collector\frontend
+npm test            # tests unitaires (Vitest + jsdom, sans navigateur), une seule passe
+npx ng build        # vérifie que l'application compile (sortie dans frontend/dist/)
+```
+
+Les tests n'appellent jamais l'API réelle : les réponses sont simulées, au format
+exact de l'API.
+
+### Structure
+
+```
+frontend/
+├── proxy.conf.json          /api → http://127.0.0.1:8000 (ng serve)
+├── angular.json, package.json, tsconfig*.json
+└── src/
+    ├── styles.css           styles communs (couleurs et espacements en variables CSS)
+    └── app/
+        ├── app.*            mise en page : menu, bandeau « usage interne »
+        ├── app.routes.ts    pages
+        ├── core/            types de l'API, intercepteur d'erreurs, formatage, libellés
+        ├── services/        appels à l'API (consultations, collecte)
+        ├── shared/          composants communs (tableau, badges, états, run, santé)
+        └── pages/           une page par dossier ou fichier
+```
+
+`npm start` ne sert qu'au développement et à la démonstration, sur ce poste.
+Publier l'interface sur un serveur demanderait un serveur web qui transmette
+`/api/` à l'API, **et** d'abord l'authentification prévue au §12.
