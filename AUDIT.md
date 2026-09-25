@@ -350,6 +350,14 @@ fiches nouvelles, modifiées ou en échec, puis s'arrête. Le run suivant contin
 donc là où le précédent s'est arrêté. Un numéro de page mémorisé serait moins
 fiable : les nouvelles publications décalent les pages d'un jour à l'autre.
 
+## Points 1, 3 et 4 de l'audit du 24/09 : vérification
+
+| Point | Résultat |
+|---|---|
+| **1. Logs et détection de pannes (§F)** | **Toujours OK, testé le 25/09/2026.** `test_robustness.py` et `test_crawl_integration.py` passent (erreurs HTTP 404/500, timeout, circuit breaker, refus si la base ne répond pas, log du script planifié). Seul changement depuis le 24/09 : le texte du message de refus (« heures creuses » → « cette fenêtre »). |
+| **3. README (§E)** | **Toujours OK.** Depuis l'audit, le README n'a reçu que des ajouts : collecte par lots (§5-§6), horaire du matin et tâche planifiée (§8), encadré sur l'écart à la consigne. Les étapes d'installation vérifiées le 24/09 n'ont pas changé. Je ne les ai pas rejouées depuis une machine vierge aujourd'hui. |
+| **4. Schéma de la base (§D)** | **`db/schema.sql` inchangé et toujours cohérent.** Aucune table ni colonne de checkpoint ajoutée : la reprise s'appuie sur les colonnes existantes. Les nouvelles requêtes (`fetch_known`, `touch_seen` dans `db.py`) n'utilisent que des colonnes déjà présentes dans le schéma (`org_acronyme`, `ref_consultation`, `date_limite_depot`, `statut`, `dce_statut`, `derniere_vue_le`). `test_live_fixtures.py` (parsing de `fixtures/live/`) passe. **Réserve :** le cycle complet PostgreSQL sur `fixtures/live/` fait partie des 5 tests ignorés faute de mot de passe `postgres` (voir plus bas). |
+
 ## Vérifications (faux portail local uniquement, jamais le vrai site)
 
 | Vérification | Résultat |
