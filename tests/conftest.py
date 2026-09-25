@@ -16,7 +16,7 @@ os.environ.update({
     "PMMP_BASE_URL": "https://www.marchespublics.gov.ma/pmmp/",
     "PMMP_USER_AGENT": "TACHFIR-VeilleMarchesPublics/1.0 (+contact: sales@tachfir.com)",
     "PMMP_DOWNLOAD_DELAY": "3",
-    "PMMP_ALLOWED_WINDOW": "23:00-06:00",
+    "PMMP_ALLOWED_WINDOW": "06:00-10:00",
     "PMMP_TIMEZONE": "Africa/Casablanca",
     "PMMP_CB_MAX_CONSECUTIVE": "3",
     "PMMP_DATABASE_URL": "",

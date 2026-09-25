@@ -39,7 +39,7 @@ def cmd_crawl(args) -> int:
     if not cfg.in_window() and not args.force:
         print(
             f"REFUS : il est {cfg.now():%H:%M} ({cfg.tz.key}), hors de la fenêtre autorisée "
-            f"{cfg.window_spec}. Le crawl complet ne tourne qu'en heures creuses.\n"
+            f"{cfg.window_spec}. Le crawl complet ne tourne que dans cette fenêtre.\n"
             f"Pour un test manuel limité ({cfg.force_max_pages} page(s), {cfg.force_max_items} consultations) : --force",
             file=sys.stderr,
         )

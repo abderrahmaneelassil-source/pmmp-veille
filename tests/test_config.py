@@ -50,3 +50,22 @@ def test_circuit_breaker_bounds(monkeypatch):
     monkeypatch.setenv("PMMP_CB_MAX_CONSECUTIVE", "0")
     with pytest.raises(ConfigError):
         load_config()
+
+
+@pytest.mark.parametrize("h,m,expected", [
+    (6, 0, True), (7, 30, True), (9, 59, True),               # matin : accepté
+    (10, 0, False), (14, 0, False), (5, 59, False),           # journée / avant 6 h : refusé
+    (23, 0, False), (23, 30, False), (2, 0, False),           # nuit (ancienne fenêtre) : refusé
+])
+def test_default_window_is_morning(monkeypatch, h, m, expected):
+    """Valeur par défaut depuis le 25/09/2026 : 06:00-10:00 (choix du stagiaire, pas la consigne d'origine)."""
+    monkeypatch.delenv("PMMP_ALLOWED_WINDOW", raising=False)
+    cfg = load_config()
+    assert cfg.window_spec == "06:00-10:00"
+    assert cfg.in_window(at(h, m)) is expected
+
+
+def test_window_stays_configurable(monkeypatch):
+    monkeypatch.setenv("PMMP_ALLOWED_WINDOW", "23:00-06:00")  # retour à la nuit : une seule variable
+    cfg = load_config()
+    assert cfg.in_window(at(23, 30)) and not cfg.in_window(at(7, 30))

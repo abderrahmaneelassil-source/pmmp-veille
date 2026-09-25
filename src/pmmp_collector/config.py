@@ -148,7 +148,8 @@ def load_config() -> Config:
     if page_size not in PAGE_SIZES:
         raise ConfigError(f"PMMP_PAGE_SIZE doit valoir {sorted(PAGE_SIZES)} (valeurs proposées par le portail)")
 
-    window_spec = _env("PMMP_ALLOWED_WINDOW", "23:00-06:00")
+    # Matin (décision du stagiaire, 25/09/2026) ; consigne d'origine du chef de projet : 23:00-06:00.
+    window_spec = _env("PMMP_ALLOWED_WINDOW", "06:00-10:00")
     start, end = parse_window(window_spec)
 
     try:

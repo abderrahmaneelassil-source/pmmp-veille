@@ -126,7 +126,14 @@ def closed_window() -> str:
     return f"{start:%H:%M}-{end:%H:%M}"
 
 
-def run_crawl(portal, tmp_path, *args, database_url=""):
+def open_window() -> str:
+    """Fenêtre horaire qui contient l'heure actuelle (run accepté sans --force)."""
+    now = datetime.now(ZoneInfo("Africa/Casablanca"))
+    start, end = now - timedelta(minutes=30), now + timedelta(hours=1)
+    return f"{start:%H:%M}-{end:%H:%M}"
+
+
+def run_crawl(portal, tmp_path, *args, database_url="", window=None):
     env = {
         **os.environ,
         "PMMP_BASE_URL": f"http://127.0.0.1:{portal.server_port}/",
@@ -135,7 +142,7 @@ def run_crawl(portal, tmp_path, *args, database_url=""):
         "PMMP_MODE": os.environ.get("PMMP_MODE", "test"),
         "PMMP_USER_AGENT": UA,
         "PMMP_DOWNLOAD_DELAY": str(DELAY),
-        "PMMP_ALLOWED_WINDOW": closed_window(),
+        "PMMP_ALLOWED_WINDOW": window or closed_window(),
         "PMMP_CB_MAX_CONSECUTIVE": "3",
         "PMMP_FORCE_MAX_ITEMS": "10",
         "PMMP_STORAGE_DIR": str(tmp_path / "storage"),
@@ -170,6 +177,14 @@ def test_unusable_database_fails_fast_with_clear_message(portal, tmp_path, monke
     assert message in proc.stderr
     assert "Traceback" not in proc.stderr
     assert FakePortal.log == [] and summary is None
+
+
+def test_accepted_inside_window_without_force(portal, tmp_path):
+    proc, summary = run_crawl(portal, tmp_path, window=open_window())
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    assert summary["statut"] == "succes" and summary["force"] is False
+    assert "Run forcé" not in proc.stderr  # pas de plafond --force : vrai run planifié
+    assert summary["consultations_listees"] == N_ROWS
 
 
 def test_circuit_breaker_stops_real_crawl(portal, tmp_path):
