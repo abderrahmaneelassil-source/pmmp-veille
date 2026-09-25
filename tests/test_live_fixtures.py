@@ -60,3 +60,24 @@ def test_real_search_form(path):
     _, fields = form_fields(sel, BASE)
     assert fields.get("PRADO_PAGESTATE")
     assert "ctl0$CONTENU_PAGE$AdvancedSearch$annonceType" not in fields  # désactivé sur le portail
+
+
+@pytest.mark.skipif(not (listing_pages and detail_pages), reason="pages réelles absentes")
+def test_listing_deadline_matches_detail_deadline():
+    """La collecte incrémentale compare la date limite de la liste à celle de la base (issue de la
+    fiche) : si elles différaient, chaque fiche serait revisitée toutes les nuits."""
+    rows = {}
+    for path in listing_pages:
+        for r in parse_listing_page(read(path), BASE)["rows"]:
+            rows[(r["org_acronyme"], r["ref_consultation"])] = r
+    for path in detail_pages:
+        org, _, ref = path.stem.partition("__")
+        detail = parse_detail_page(read(path), BASE)
+        assert rows[(org, ref)]["date_limite_depot"] == detail["date_limite_depot"], path.name
+
+
+@pytest.mark.skipif(not listing_pages, reason="aucune page de liste réelle")
+def test_real_listing_page_size_selector():
+    pager = parse_listing_page(read(listing_pages[0]), BASE)["pager"]
+    assert pager["page_size_name"] == "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
+    assert pager["page_size"] == 10

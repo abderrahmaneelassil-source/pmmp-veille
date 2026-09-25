@@ -21,6 +21,8 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 # Planchers non négociables (consignes du chef de projet).
 MIN_DOWNLOAD_DELAY = 1.0
 MAX_CB_CONSECUTIVE = 10
+# Tailles proposées par la liste déroulante « Nombre de résultats par page » du portail.
+PAGE_SIZES = {10, 20, 50, 100, 500}
 
 
 class ConfigError(RuntimeError):
@@ -98,6 +100,8 @@ class Config:
     mode: str
     max_pages: int
     max_items: int
+    page_size: int
+    incremental: bool
     force_max_pages: int
     force_max_items: int
     download_dce: bool
@@ -140,6 +144,10 @@ def load_config() -> Config:
     if mode not in {"prod", "test"}:
         raise ConfigError("PMMP_MODE doit valoir 'prod' ou 'test'")
 
+    page_size = _env_int("PMMP_PAGE_SIZE", 100)
+    if page_size not in PAGE_SIZES:
+        raise ConfigError(f"PMMP_PAGE_SIZE doit valoir {sorted(PAGE_SIZES)} (valeurs proposées par le portail)")
+
     window_spec = _env("PMMP_ALLOWED_WINDOW", "23:00-06:00")
     start, end = parse_window(window_spec)
 
@@ -163,7 +171,9 @@ def load_config() -> Config:
         download_timeout=_env_int("PMMP_DOWNLOAD_TIMEOUT", 30),
         mode=mode,
         max_pages=max(0, _env_int("PMMP_MAX_PAGES", 0)),
-        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 0)),
+        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 2000)),
+        page_size=page_size,
+        incremental=_env_bool("PMMP_INCREMENTAL", True),
         force_max_pages=max(1, _env_int("PMMP_FORCE_MAX_PAGES", 1)),
         force_max_items=max(1, _env_int("PMMP_FORCE_MAX_ITEMS", 10)),
         download_dce=_env_bool("PMMP_DOWNLOAD_DCE", True),

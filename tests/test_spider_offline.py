@@ -1,5 +1,6 @@
 """Parcours du spider sur les fixtures, sans réseau : pagination PRADO et fiche détail."""
 from urllib.parse import parse_qs
+from pathlib import Path
 
 import pytest
 from scrapy.http import FormRequest, HtmlResponse, Request
@@ -8,6 +9,7 @@ from scrapy.utils.test import get_crawler
 from pmmp_collector.spiders.pmmp import PRIORITY_DETAIL, PRIORITY_LISTING, PmmpSpider
 from pmmp_collector.storage import DceStore
 
+ROOT = Path(__file__).resolve().parents[1]
 LIST_URL = "https://www.marchespublics.gov.ma/pmmp/index.php?page=entreprise.EntrepriseAdvancedSearch&AllCons"
 DETAIL_URL = (
     "https://www.marchespublics.gov.ma/pmmp/index.php?page=entreprise.EntrepriseDetailsConsultation"
@@ -135,3 +137,23 @@ def test_results_page_as_start_page_is_parsed_directly(spider, fixture_html):
     out = list(spider.parse_search_form(html_response(LIST_URL, fixture_html("synthetic/liste_page1.html"))))
     (nxt,) = out
     assert nxt.cb_kwargs == {"page": 2}
+
+
+def test_page_size_is_requested_once_then_listing_is_parsed(spider):
+    from parsel import Selector
+
+    from pmmp_collector.parsers import parse_listing_page
+
+    # Vraie page de liste (10 résultats par page, taille par défaut du portail)
+    body = HtmlResponse(LIST_URL, body=(ROOT / "fixtures/live/liste/page0001.html").read_bytes()).text
+    (resize,) = list(spider.parse_listing(html_response(LIST_URL, body), page=1))
+    assert isinstance(resize, FormRequest) and resize.cb_kwargs == {"page": 1}
+    form = {k: v[0] if v else "" for k, v in parse_qs(resize.body.decode(), keep_blank_values=True).items()}
+    target = "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
+    assert form["PRADO_POSTBACK_TARGET"] == target and form[target] == "100"
+    assert spider.pending_details == [] and spider.items_scheduled == 0
+
+    # Réponse au postback (même page ici) : pas de nouvelle demande, les lignes sont traitées.
+    out = list(spider.parse_listing(html_response(LIST_URL, body), page=1))
+    assert len(out) == 1 and out[0].cb_kwargs == {"page": 2}
+    assert len(spider.pending_details) == len(parse_listing_page(Selector(text=body), LIST_URL)["rows"]) == 10

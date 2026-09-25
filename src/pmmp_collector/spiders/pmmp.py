@@ -16,6 +16,8 @@ from scrapy.http import FormRequest
 from scrapy.spidermiddlewares.httperror import HttpError
 
 from pmmp_collector.config import load_config
+from pmmp_collector.history import refresh_reason
+from pmmp_collector.models import parse_datetime
 from pmmp_collector.parsers import (
     PAGESTATE_FIELD,
     find_search_button,
@@ -40,6 +42,13 @@ def _truthy(value) -> bool:
 
 def _int_or(value, default: int) -> int:
     return int(value) if value not in (None, "") else default
+
+
+def _listing_deadline(row: dict):
+    try:
+        return parse_datetime(row.get("date_limite_depot"))
+    except ValueError:
+        return None
 
 
 def _cancelled_by_us(failure) -> bool:
@@ -77,6 +86,9 @@ class PmmpSpider(scrapy.Spider):
         self.pending_details: list[scrapy.Request] = []
         self.dce_blocked_reason: str | None = None
         self._previous_page_keys: set | None = None
+        self._page_size_requested = False
+        self._db = None  # connexion de la collecte incrémentale (ouverte à la 1re page)
+        self._db_unavailable = not (self.cfg.incremental and self.cfg.database_url)
 
     # --- Démarrage ---------------------------------------------------------------
 
@@ -133,9 +145,12 @@ class PmmpSpider(scrapy.Spider):
             return
 
         rows = data["rows"]
-        self.crawler.stats.inc_value("pmmp/listing_rows", len(rows))
         if data["captcha"]:
             raise CloseSpider("captcha_detecte")
+        if rows and page == 1 and (resize := self._page_size_request(response, data["pager"])):
+            yield resize
+            return
+        self.crawler.stats.inc_value("pmmp/listing_rows", len(rows))
         if not rows:
             if not data["pager"]["pagestate"]:
                 logger.error(
@@ -154,13 +169,26 @@ class PmmpSpider(scrapy.Spider):
             return
         self._previous_page_keys = keys
 
+        valid = []
         for row in rows:
-            if self.max_items and self.items_scheduled >= self.max_items:
-                break
             if not (row["url_detail"] and row["org_acronyme"] and row["ref_consultation"]):
                 logger.warning("Ligne ignorée (lien détail ou clé absente) page %d : %r", page, row.get("objet"))
                 self.crawler.stats.inc_value("pmmp/rows_without_key")
                 continue
+            valid.append(row)
+        known = self._known([(r["org_acronyme"], r["ref_consultation"]) for r in valid])
+        up_to_date = []
+
+        for row in valid:
+            if self.max_items and self.items_scheduled >= self.max_items:
+                break
+            key = (row["org_acronyme"], row["ref_consultation"])
+            reason = "nouvelle" if known is None else refresh_reason(
+                _listing_deadline(row), row.get("statut_portail"), known.get(key))
+            if reason is None:
+                up_to_date.append(key)
+                continue
+            self.crawler.stats.inc_value(f"pmmp/fiches_a_visiter/{reason}")
             self.items_scheduled += 1
             row["raw_html_liste"] = str(raw) if raw else None
             self.pending_details.append(scrapy.Request(
@@ -168,11 +196,80 @@ class PmmpSpider(scrapy.Spider):
                 cb_kwargs={"listing": row}, priority=PRIORITY_DETAIL,
             ))
 
+        self._touch_seen(up_to_date)
+
         next_request = self._next_page_request(response, data["pager"], page)
         if next_request is not None:
             yield next_request
         else:
             yield from self._release_details()
+
+    # --- Collecte incrémentale par lots -------------------------------------------
+    # Seules les consultations nouvelles, modifiées d'après la liste ou en échec au run
+    # précédent sont visitées, dans la limite de max_items (le lot). Le lot suivant
+    # reprend naturellement la nuit d'après : ce qui est déjà en base est sauté.
+
+    def _page_size_request(self, response, pager: dict):
+        """Postback « Nombre de résultats par page », comme un choix dans la liste déroulante."""
+        if self._page_size_requested or not pager["page_size_name"] or pager["page_size"] == self.cfg.page_size:
+            return None
+        self._page_size_requested = True
+        action, formdata = form_fields(response.selector, response.url)
+        formdata.update({
+            "PRADO_POSTBACK_TARGET": pager["page_size_name"],
+            "PRADO_POSTBACK_PARAMETER": "",
+            pager["page_size_name"]: str(self.cfg.page_size),
+        })
+        logger.info("Affichage de %d résultats par page (au lieu de %s).", self.cfg.page_size, pager["page_size"])
+        return FormRequest(
+            action, formdata=formdata, callback=self.parse_listing, errback=self.listing_failed,
+            cb_kwargs={"page": 1}, priority=PRIORITY_LISTING,
+        )
+
+    def _connection(self):
+        if self._db_unavailable:
+            return None
+        if self._db is None:
+            from pmmp_collector import db
+
+            try:
+                self._db = db.connect(self.cfg.database_url, self.cfg.tz.key)
+            except db.psycopg.Error:
+                logger.exception("Collecte incrémentale impossible (base inaccessible) : toutes les fiches seront visitées")
+                self._db_unavailable = True
+                return None
+        return self._db
+
+    def _known(self, keys: list[tuple[str, str]]) -> dict | None:
+        """État en base des consultations de la page, ou None si la collecte incrémentale est inactive."""
+        conn = self._connection()
+        if conn is None:
+            return None
+        from pmmp_collector import db
+
+        try:
+            return db.fetch_known(conn, keys)
+        except db.psycopg.Error:
+            logger.exception("Lecture de l'état en base impossible : fiches de cette page visitées")
+            return None
+
+    def _touch_seen(self, keys: list[tuple[str, str]]) -> None:
+        if not keys:
+            return
+        self.crawler.stats.inc_value("pmmp/fiches_a_jour", len(keys))
+        conn = self._connection()
+        if conn is None:
+            return
+        from pmmp_collector import db
+
+        try:
+            db.touch_seen(conn, keys)
+        except db.psycopg.Error:
+            logger.exception("Mise à jour de derniere_vue_le impossible")
+
+    def closed(self, reason):
+        if self._db is not None:
+            self._db.close()
 
     def _release_details(self):
         logger.info("Pagination terminée : %d fiche(s) détail à visiter.", len(self.pending_details))

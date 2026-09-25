@@ -70,6 +70,27 @@ def classify(champ: str, old_value, new_value) -> str:
     return TRACKED_FIELDS.get(champ, "autre")
 
 
+# Fiches à revisiter même sans changement visible dans la liste : la dernière visite a échoué.
+RETRY_DCE_STATUTS = {"echec", "echec_fiche_detail"}
+
+
+def refresh_reason(listing_deadline: datetime | None, listing_statut: str | None, known: dict | None) -> str | None:
+    """Pourquoi la fiche détail doit être (re)visitée, ou None si la base est déjà à jour.
+
+    Collecte incrémentale : seules les consultations nouvelles, modifiées d'après la
+    liste (date limite, annulation/report) ou en échec au run précédent coûtent des requêtes.
+    """
+    if known is None:
+        return "nouvelle"
+    if known.get("dce_statut") in RETRY_DCE_STATUTS:
+        return "echec_precedent"
+    if listing_statut and listing_statut != known.get("statut"):
+        return "statut"
+    if listing_deadline is not None and listing_deadline != known.get("date_limite_depot"):
+        return "date_limite"
+    return None
+
+
 def compute_changes(old: dict | None, new: dict) -> list[Change]:
     """Liste des champs suivis qui changent. Nouvel enregistrement -> aucune ligne.
 

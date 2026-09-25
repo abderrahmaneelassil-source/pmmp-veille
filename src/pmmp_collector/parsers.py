@@ -238,12 +238,21 @@ def parse_pager(sel: Selector) -> dict:
         m = re.search(r"\d+", node_text(total_node[0]))
         total = int(m.group(0)) if m else None
     target = page_input_name.replace("numPage", "DefaultButton") if page_input_name else None
+    # Liste déroulante « Nombre de résultats par page » (postback automatique au changement).
+    size_select = sel.xpath("//select[contains(@name,'listePageSizeTop')]")
+    page_size_name = size_select[0].attrib.get("name") if size_select else None
+    page_size = None
+    if size_select:
+        selected = size_select[0].xpath(".//option[@selected]/@value").get()
+        page_size = int(selected) if selected and selected.strip().isdigit() else None
     return {
         "pagestate": pagestate,
         "page_input_name": page_input_name,
         "postback_target": target,
         "current_page": current,
         "total_pages": total,
+        "page_size_name": page_size_name,
+        "page_size": page_size,
     }
 
 

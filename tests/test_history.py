@@ -52,3 +52,17 @@ def test_statut_cloture_when_deadline_passed():
     assert derive_statut({"date_limite_depot": past}, None, NOW) == "cloture"
     assert derive_statut({"date_limite_depot": D1}, None, NOW) == "en_cours"
     assert derive_statut({"date_limite_depot": D1}, {"statut": "reporte", "date_limite_depot": D1}, NOW) == "reporte"
+
+
+def test_refresh_reason():
+    from pmmp_collector.history import refresh_reason
+
+    known = {"date_limite_depot": D1, "statut": "en_cours", "dce_statut": "telecharge"}
+    assert refresh_reason(D1, None, None) == "nouvelle"
+    assert refresh_reason(D1, None, known) is None                      # inchangée : aucune requête
+    assert refresh_reason(None, None, known) is None                    # date absente de la liste
+    assert refresh_reason(D2, None, known) == "date_limite"
+    assert refresh_reason(D1, "annule", known) == "statut"
+    assert refresh_reason(D1, "reporte", {**known, "statut": "reporte"}) is None
+    assert refresh_reason(D1, None, {**known, "dce_statut": "echec_fiche_detail"}) == "echec_precedent"
+    assert refresh_reason(D1, None, {**known, "dce_statut": "aucun_lien"}) is None

@@ -91,6 +91,37 @@ def insert_history(conn, consultation_id: int, changes: list[Change], run_id: in
         )
 
 
+def fetch_known(conn, keys: list[tuple[str, str]]) -> dict[tuple[str, str], dict]:
+    """État en base des consultations d'une page de liste (collecte incrémentale)."""
+    if not keys:
+        return {}
+    orgs, refs = [k[0] for k in keys], [k[1] for k in keys]
+    rows = conn.execute(
+        """
+        SELECT c.org_acronyme, c.ref_consultation, c.date_limite_depot, c.statut, c.dce_statut
+        FROM consultations c
+        JOIN unnest(%s::text[], %s::text[]) AS k(org, ref)
+          ON c.org_acronyme = k.org AND c.ref_consultation = k.ref
+        """,
+        (orgs, refs),
+    ).fetchall()
+    return {(r["org_acronyme"], r["ref_consultation"]): r for r in rows}
+
+
+def touch_seen(conn, keys: list[tuple[str, str]]) -> None:
+    """Consultations toujours présentes dans la liste mais inchangées : seule derniere_vue_le bouge."""
+    if not keys:
+        return
+    conn.execute(
+        """
+        UPDATE consultations c SET derniere_vue_le = now()
+        FROM unnest(%s::text[], %s::text[]) AS k(org, ref)
+        WHERE c.org_acronyme = k.org AND c.ref_consultation = k.ref
+        """,
+        ([k[0] for k in keys], [k[1] for k in keys]),
+    )
+
+
 def close_expired(conn, run_id: int | None) -> int:
     """Passe en 'cloture' les consultations dont la date limite est dépassée (sans requête au site)."""
     with conn.transaction():

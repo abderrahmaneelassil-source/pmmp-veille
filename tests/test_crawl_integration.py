@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -30,22 +31,35 @@ ROW = """<tr>
   <td class="col-450"><div class="objet-line"><span class="ref">{ref}/2026/AOO</span>
     <div id="x_panelBlocObjet"><strong>Objet :</strong> Travaux n°{ref} — تهيئة</div>
     <div id="x_panelBlocDenomination"><strong>Acheteur public :</strong> COMMUNE DE TEST</div></div></td>
-  <td class="col-90 cons_dateEnd"><div class="cloture-line"><span>20/10/2030 10:00</span></div></td>
+  <td class="col-90 cons_dateEnd"><div class="cloture-line"><span>{deadline}</span></div></td>
   <td class="actions"><a href="index.php?page=entreprise.EntrepriseDetailsConsultation&amp;refConsultation={ref}&amp;orgAcronyme=t1">Détail</a></td>
 </tr>"""
 
-LISTING = f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+DEADLINE = "20/10/2026 10:00"  # même date limite que la fiche détail, comme sur le vrai portail
+SIZE_SELECT = "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
+
+
+def listing(page_size: int, deadlines: dict) -> bytes:
+    """Page de liste ; la liste déroulante de taille de page reflète le dernier choix posté."""
+    options = "".join(
+        f'<option value="{n}"{" selected=\"selected\"" if n == page_size else ""}>{n}</option>'
+        for n in (10, 20, 50, 100, 500)
+    )
+    rows = "".join(ROW.format(ref=1000 + i, deadline=deadlines.get(1000 + i, DEADLINE)) for i in range(N_ROWS))
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
 <form method="post" action="liste.html">
 <input type="hidden" name="PRADO_PAGESTATE" value="STATE1" />
+<select name="{SIZE_SELECT}">{options}</select>
 <input type="text" name="ctl0$CONTENU_PAGE$resultSearch$numPageTop" value="1" />
 / <span id="ctl0_CONTENU_PAGE_resultSearch_nombrePageTop">1</span>
-<table>{"".join(ROW.format(ref=1000 + i) for i in range(N_ROWS))}</table>
+<table>{rows}</table>
 </form></body></html>""".encode("utf-8")
 
 
 class FakePortal(BaseHTTPRequestHandler):
     detail_status = 200  # 503 -> panne simulée sur les fiches détail
     detail_body = None  # None -> fixtures/synthetic/detail_987654.html
+    deadlines: dict = {}  # ref -> date limite affichée dans la liste (défaut DEADLINE)
     log: list = []
     inflight = 0
     max_inflight = 0
@@ -56,13 +70,16 @@ class FakePortal(BaseHTTPRequestHandler):
         with cls.lock:
             cls.inflight += 1
             cls.max_inflight = max(cls.max_inflight, cls.inflight)
-            cls.log.append({"t": time.monotonic(), "path": self.path, "ua": self.headers.get("User-Agent")})
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
+            form = {k: v[0] for k, v in parse_qs(body).items()}
+            cls.log.append({"t": time.monotonic(), "path": self.path, "ua": self.headers.get("User-Agent"),
+                            "form": form})
         try:
             time.sleep(0.1)  # rend visible un éventuel chevauchement de requêtes
             if self.path == "/robots.txt":
                 self._reply(404, b"")
             elif self.path.startswith("/liste.html"):
-                self._reply(200, LISTING)
+                self._reply(200, listing(int(form.get(SIZE_SELECT, 10)), cls.deadlines))
             elif "EntrepriseDetailsConsultation" in self.path:
                 if cls.detail_status != 200:
                     self._reply(cls.detail_status, b"<html>Service indisponible</html>")
@@ -94,7 +111,7 @@ class FakePortal(BaseHTTPRequestHandler):
 @pytest.fixture
 def portal():
     FakePortal.log, FakePortal.inflight, FakePortal.max_inflight = [], 0, 0
-    FakePortal.detail_status, FakePortal.detail_body = 200, None
+    FakePortal.detail_status, FakePortal.detail_body, FakePortal.deadlines = 200, None, {}
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakePortal)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
@@ -177,8 +194,9 @@ def test_nominal_crawl_respects_collection_rules(portal, tmp_path):
     assert summary["dce_telecharges"] == N_ROWS
 
     log = FakePortal.log
-    # robots.txt + liste + une fiche et un DCE par consultation
-    assert len(log) == 2 + 2 * N_ROWS
+    # robots.txt + liste + postback « 100 résultats par page » + une fiche et un DCE par consultation
+    assert len(log) == 3 + 2 * N_ROWS
+    assert log[2]["form"]["PRADO_POSTBACK_TARGET"] == SIZE_SELECT and log[2]["form"][SIZE_SELECT] == "100"
     # User-Agent déclaré sur CHAQUE requête, y compris robots.txt
     assert {r["ua"] for r in log} == {UA}
     # Une seule requête à la fois
@@ -212,6 +230,7 @@ def test_two_crawls_with_database(portal, tmp_path, monkeypatch):
     assert summary["consultations_enregistrees"] == N_ROWS
 
     FakePortal.detail_body = DETAIL.replace("20/10/2026 10:00", "30/10/2026 10:00").encode("utf-8")
+    FakePortal.deadlines = {1000 + i: "30/10/2026 10:00" for i in range(N_ROWS)}
     proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
     assert proc.returncode == 0, proc.stderr[-3000:]
 
@@ -224,4 +243,45 @@ def test_two_crawls_with_database(portal, tmp_path, monkeypatch):
     assert {(h["champ"], h["type_evenement"], h["run_id"]) for h in hist} == {
         ("date_limite_depot", "report_date", runs[1]["id"]), ("statut", "report_date", runs[1]["id"])}
     assert {r["statut"] for r in conn.execute("SELECT statut FROM consultations")} == {"reporte"}
+    conn.close()
+
+
+@pytest.mark.skipif(not TEST_DB, reason="PMMP_TEST_DATABASE_URL non défini (base jetable)")
+def test_incremental_batches_resume_night_after_night(portal, tmp_path, monkeypatch):
+    """6 consultations, lot de 4 : 4 fiches la 1re nuit, les 2 autres la 2e, aucune la 3e ;
+    une date limite modifiée sur le portail -> seule cette fiche est revisitée."""
+    from pmmp_collector import db
+
+    conn = db.connect(TEST_DB)
+    db.init_schema(conn)
+    conn.execute("TRUNCATE historique_modifications, consultations, collecte_runs RESTART IDENTITY CASCADE")
+    monkeypatch.setenv("PMMP_MODE", "prod")
+    monkeypatch.setenv("PMMP_MAX_ITEMS", "4")
+
+    def night():
+        start = len(FakePortal.log)
+        proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
+        assert proc.returncode == 0, proc.stderr[-3000:]
+        details = [r["path"] for r in FakePortal.log[start:] if "EntrepriseDetailsConsultation" in r["path"]]
+        return sorted(p.split("refConsultation=")[1].split("&")[0] for p in details), summary
+
+    visited1, s1 = night()
+    assert len(visited1) == 4 and s1["consultations_enregistrees"] == 4
+    visited2, _ = night()
+    assert len(visited2) == 2 and set(visited1).isdisjoint(visited2)
+    assert conn.execute("SELECT count(*) n FROM consultations").fetchone()["n"] == N_ROWS
+
+    before = conn.execute("SELECT max(derniere_vue_le) m FROM consultations").fetchone()["m"]
+    visited3, s3 = night()
+    assert visited3 == [] and s3["statut"] == "succes"
+    assert conn.execute("SELECT min(derniere_vue_le) m FROM consultations").fetchone()["m"] > before
+
+    FakePortal.deadlines = {1002: "30/10/2026 10:00"}
+    FakePortal.detail_body = DETAIL.replace("20/10/2026 10:00", "30/10/2026 10:00").encode("utf-8")
+    visited4, _ = night()
+    assert visited4 == ["1002"]
+    hist = conn.execute(
+        "SELECT c.ref_consultation ref, h.champ FROM historique_modifications h "
+        "JOIN consultations c ON c.id = h.consultation_id").fetchall()
+    assert {(h["ref"], h["champ"]) for h in hist} == {("1002", "date_limite_depot"), ("1002", "statut")}
     conn.close()
