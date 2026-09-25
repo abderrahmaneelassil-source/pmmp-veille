@@ -1,9 +1,15 @@
-# Lancement nocturne du collecteur PMMP (Planificateur de tâches Windows).
-# Enregistrement de la tâche (une fois, PowerShell administrateur) :
-#   $a = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\chemin\pmmp_collector\scripts\run_nightly.ps1"
-#   $t = New-ScheduledTaskTrigger -Daily -At 23:30
-#   $s = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew
+# Lancement quotidien planifie du collecteur PMMP (Planificateur de taches Windows).
+# Le nom "run_nightly" est historique : depuis le 25/09/2026 la tache tourne le MATIN,
+# a 06:00, debut de la fenetre PMMP_ALLOWED_WINDOW=06:00-10:00 (choix du stagiaire,
+# different de la consigne d'origine du chef de projet : nuit 23:00-06:00).
+# Si la fenetre change dans .env, changer aussi l'heure de la tache (README section 8).
+# Enregistrement de la tache (une fois, PowerShell, utilisateur courant) :
+#   $a = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File C:\chemin\pmmp_collector\scripts\run_nightly.ps1" -WorkingDirectory "C:\chemin\pmmp_collector"
+#   $t = New-ScheduledTaskTrigger -Daily -At 06:00
+#   $s = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 5)
 #   Register-ScheduledTask -TaskName "PMMP-Veille" -Action $a -Trigger $t -Settings $s
+# Le collecteur verifie lui-meme la fenetre : lance hors fenetre, il refuse (code 2)
+# sans aucune requete au portail.
 $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectDir

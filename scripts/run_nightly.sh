@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Lancement nocturne du collecteur PMMP (cron, Linux).
-# Exemple de crontab (serveur à l'heure de Casablanca ou en UTC, la fenêtre est
-# de toute façon vérifiée par le collecteur dans le fuseau Africa/Casablanca) :
-#   30 23 * * *  /opt/pmmp_collector/scripts/run_nightly.sh
+# Lancement quotidien planifié du collecteur PMMP (cron, Linux).
+# Nom historique : depuis le 25/09/2026 la collecte tourne le MATIN
+# (PMMP_ALLOWED_WINDOW=06:00-10:00, choix du stagiaire, différent de la consigne
+# d'origine du chef de projet : nuit 23:00-06:00).
+# Exemple de crontab pour un serveur à l'heure de Casablanca (la fenêtre est de
+# toute façon vérifiée par le collecteur dans le fuseau Africa/Casablanca) :
+#   0 6 * * *  /opt/pmmp_collector/scripts/run_nightly.sh
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
