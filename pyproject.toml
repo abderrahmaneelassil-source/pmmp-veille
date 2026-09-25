@@ -18,7 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8"]
+test = ["pytest>=8", "httpx2>=2.13,<3"]
+# API de consultation (api/), composant séparé du collecteur
+api = ["fastapi>=0.141,<1", "uvicorn>=0.54,<1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
