@@ -157,3 +157,35 @@ def test_page_size_is_requested_once_then_listing_is_parsed(spider):
     out = list(spider.parse_listing(html_response(LIST_URL, body), page=1))
     assert len(out) == 1 and out[0].cb_kwargs == {"page": 2}
     assert len(spider.pending_details) == len(parse_listing_page(Selector(text=body), LIST_URL)["rows"]) == 10
+
+
+def test_resume_across_two_consecutive_runs(tmp_path, monkeypatch):
+    """Reprise sans fichier d'état : chaque run repart de la page 1 et saute ce qui est déjà en base.
+    La base est simulée en mémoire (même contrat que db.fetch_known / db.touch_seen)."""
+    from pmmp_collector.models import parse_datetime
+    from test_crawl_integration import DEADLINE, N_ROWS, listing
+
+    monkeypatch.setenv("PMMP_STORAGE_DIR", str(tmp_path / "storage"))
+    monkeypatch.setenv("PMMP_FIXTURES_DIR", str(tmp_path / "fixtures"))
+    base: dict = {}  # (org, ref) -> état en base
+    page = listing(100, {}).decode("utf-8")
+
+    def run(max_items):
+        crawler = get_crawler(PmmpSpider)
+        sp = PmmpSpider.from_crawler(crawler, force="0", max_pages="", max_items=str(max_items))
+        sp._known = lambda keys: {k: base[k] for k in keys if k in base}
+        seen = []
+        sp._touch_seen = seen.extend
+        # Dernière page : les fiches du lot sont libérées (requêtes émises)
+        visited = [r.cb_kwargs["listing"] for r in sp.parse_listing(html_response(LIST_URL, page), page=1)]
+        for row in visited:  # le pipeline enregistre les fiches visitées
+            base[(row["org_acronyme"], row["ref_consultation"])] = {
+                "date_limite_depot": parse_datetime(DEADLINE), "statut": "en_cours", "dce_statut": "telecharge"}
+        return sorted(r["ref_consultation"] for r in visited), sorted(k[1] for k in seen)
+
+    visited1, skipped1 = run(max_items=4)
+    visited2, skipped2 = run(max_items=4)
+    visited3, skipped3 = run(max_items=4)
+    assert visited1 == ["1000", "1001", "1002", "1003"] and skipped1 == []
+    assert visited2 == ["1004", "1005"] and skipped2 == visited1      # reprise là où le run 1 s'est arrêté
+    assert visited3 == [] and len(skipped3) == N_ROWS                 # tout est à jour : aucune fiche visitée
