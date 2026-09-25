@@ -266,6 +266,7 @@ cp .env.example .env    # puis éditer .env
 | `PMMP_ALLOWED_WINDOW` / `PMMP_TIMEZONE` | fenêtre autorisée (voir l'encadré en tête et §8) | `06:00-10:00` / `Africa/Casablanca` |
 | `PMMP_CB_MAX_CONSECUTIVE` / `PMMP_CB_SLOW_SECONDS` | circuit breaker (N entre 1 et 10) / seuil de lenteur | `3` / `15` |
 | `PMMP_DOWNLOAD_TIMEOUT` | timeout par requête (s) | `30` |
+| `PMMP_STALE_RUN_HOURS` | au-delà (h), un run resté `en_cours` est considéré comme mort (PC éteint, kill) et passé en `echec` au démarrage du run suivant | `6` |
 | `PMMP_MODE` | `prod` ou `test` | `prod` |
 | `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `2000` |
 | `PMMP_INCREMENTAL` | ne visiter que les consultations nouvelles, modifiées ou en échec (voir §6) | `true` |
@@ -476,6 +477,12 @@ SELECT * FROM collecte_runs ORDER BY id DESC LIMIT 10;
 Un run « terminé » qui n'a extrait **aucune** consultation est enregistré en
 `echec` (raison `aucune_consultation_extraite`). C'est le symptôme typique d'un
 changement du HTML du portail.
+
+Un run **tué** (PC éteint ou redémarré, processus arrêté) ne peut pas écrire sa
+fin : sa ligne reste `en_cours`. Au démarrage suivant, `crawl` passe en `echec`
+tout run `en_cours` depuis plus de `PMMP_STALE_RUN_HOURS` (6 h par défaut), avec
+la raison `interrompu : …`, et l'écrit dans le log (`ATTENTION : le run n°…`).
+`termine_le` reste vide : l'heure réelle de l'arrêt n'est pas connue.
 
 ## 9. Règles métier
 

@@ -38,6 +38,28 @@ def check_database(cfg) -> str | None:
     return None
 
 
+def mark_dead_runs(cfg) -> None:
+    """Runs 'en_cours' trop anciens (PC éteint ou processus tué pendant un run) : passés en échec.
+
+    Appelé verrou pris : aucun autre run de ce PC n'est en cours."""
+    if not cfg.database_url:
+        return
+    from pmmp_collector import db
+
+    try:
+        with db.connect(cfg.database_url, cfg.tz.key) as conn:
+            dead = db.mark_stale_runs(conn, cfg.stale_run_hours)
+    except db.psycopg.Error as exc:
+        print(f"ATTENTION : vérification des runs interrompus impossible : {exc}", file=sys.stderr)
+        return
+    for run in dead:
+        print(
+            f"ATTENTION : le run n°{run['id']} (démarré le {run['demarre_le']:%Y-%m-%d %H:%M}) ne s'est jamais "
+            f"terminé (PC éteint ou processus tué ?). Il est marqué 'echec' dans collecte_runs.",
+            file=sys.stderr,
+        )
+
+
 def cmd_crawl(args) -> int:
     cfg = load_config()
     if not cfg.in_window() and not args.force:
@@ -65,6 +87,7 @@ def _crawl(cfg, args) -> int:
     if problem:
         print(f"ÉCHEC avant démarrage (aucune requête envoyée au portail) : {problem}", file=sys.stderr)
         return 1
+    mark_dead_runs(cfg)
 
     from scrapy.crawler import CrawlerProcess
     from scrapy.utils.project import get_project_settings

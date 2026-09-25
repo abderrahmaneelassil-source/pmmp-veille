@@ -330,3 +330,22 @@ def test_incremental_batches_resume_night_after_night(portal, tmp_path, monkeypa
         "JOIN consultations c ON c.id = h.consultation_id").fetchall()
     assert {(h["ref"], h["champ"]) for h in hist} == {("1002", "date_limite_depot"), ("1002", "statut")}
     conn.close()
+
+
+@pytest.mark.skipif(not TEST_DB, reason="PMMP_TEST_DATABASE_URL non défini (base jetable)")
+def test_crawl_marks_dead_run_before_starting(portal, tmp_path, monkeypatch):
+    """Run tué la veille (resté 'en_cours') : le run suivant le signale et le passe en échec."""
+    from pmmp_collector import db
+
+    conn = db.connect(TEST_DB)
+    db.init_schema(conn)
+    conn.execute("TRUNCATE historique_modifications, consultations, collecte_runs RESTART IDENTITY CASCADE")
+    conn.execute("INSERT INTO collecte_runs (mode, demarre_le) VALUES ('prod', now() - interval '1 day')")
+    monkeypatch.setenv("PMMP_MODE", "prod")
+
+    proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    assert "le run n°1" in proc.stderr and "ne s'est jamais terminé" in proc.stderr
+    runs = conn.execute("SELECT id, statut FROM collecte_runs ORDER BY id").fetchall()
+    assert [(r["id"], r["statut"]) for r in runs] == [(1, "echec"), (2, "succes")]
+    conn.close()

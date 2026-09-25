@@ -169,6 +169,24 @@ def finish_run(conn, run_id: int, statut: str, raison: str, stats: dict) -> None
     )
 
 
+def mark_stale_runs(conn, max_hours: float) -> list[dict]:
+    """Runs restés 'en_cours' depuis plus de max_hours : processus mort (arrêt du PC, kill).
+
+    Passés en 'echec' avec une raison explicite. termine_le reste NULL : l'heure réelle
+    de l'arrêt n'est pas connue."""
+    return conn.execute(
+        """
+        UPDATE collecte_runs
+        SET statut = 'echec',
+            raison = format('interrompu : resté en_cours plus de %%s h (processus disparu : arrêt du PC, '
+                            'kill…), détecté le %%s', %s::text, to_char(now(), 'YYYY-MM-DD HH24:MI'))
+        WHERE statut = 'en_cours' AND demarre_le < now() - make_interval(secs => %s * 3600)
+        RETURNING id, demarre_le
+        """,
+        (f"{max_hours:g}", max_hours),
+    ).fetchall()
+
+
 def last_success(conn) -> dict | None:
     return conn.execute(
         "SELECT id, demarre_le, termine_le, nb_consultations FROM collecte_runs "
