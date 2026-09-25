@@ -2,7 +2,13 @@
 
 Note de fin de stage, 25/09/2026. Elle s'adresse à l'équipe qui reprend le projet
 sans l'avoir suivi. Pour le détail technique : `README.md` (installation,
-utilisation) et `AUDIT.md` (rapport d'audit du 24/09 et mise à jour du 25/09).
+utilisation), `AUDIT.md` (rapport d'audit du 24/09 et mise à jour du 25/09) et
+`CHECKLIST.md` (vérification complète du 25/09 après-midi).
+
+**Personne responsable : Abderrahmane Elassil (stagiaire), jusqu'au 25/09/2026.
+Après cette date, il n'y a plus de responsable : l'équipe doit en désigner un**
+(qui surveille les runs, reçoit les questions sur l'outil et tranche les points
+ouverts).
 
 ---
 
@@ -18,7 +24,7 @@ report de date, rectificatif, annulation, résultat.
 
 | | État |
 |---|---|
-| Collecteur, base de données, tests automatiques | Terminés et audités (24/09). 98 tests passent. |
+| Collecteur, base de données, tests automatiques | Terminés, audités (24/09) et revérifiés (25/09, `CHECKLIST.md`). Tous les tests passent, y compris ceux qui demandent PostgreSQL (lancés sur une base jetable). |
 | Lancement automatique chaque matin à 06:00 | Programmé sur le PC de développement. **Premier lancement réel : 26/09/2026 à 06:00**, donc après la fin du stage. |
 | Collecte réelle sur le portail | **Pas encore faite à grande échelle.** Seule une petite capture (1 page, 5 consultations) a été faite le 23/09. Elle sert de jeu de test. |
 | Base `pmmp_veille` | **Vide à ce jour** (0 consultation). C'est normal : elle a été vidée après l'audit. Elle se remplira au premier run. |
@@ -104,7 +110,7 @@ gravité de chaque point.
 |---|---|---|---|
 | 1 | **Taille du site : plus de 10 000 pages** | En affichage standard, la liste du portail fait plus de 10 000 pages. L'outil l'affiche à 100 résultats par page, soit environ 1 000 pages. C'est encore trop pour une seule séance : la collecte est donc découpée en lots quotidiens (décision n° 2). **Un run qui s'arrête à 10:00 avant d'avoir tout vu est normal** (statut `partiel`). Tant qu'aucun run n'a fini en `succes`, les consultations expirées ne sont pas marquées « clôturées » et l'alerte « aucun succès depuis 26 h » se déclenche. | Moyenne : à vérifier sur les premiers jours |
 | 2 | **Nom de l'acheteur et lieu d'exécution : la liste et la fiche ne disent pas la même chose** | Le portail écrit l'acheteur différemment sur la liste et sur la fiche détaillée (« LE DIRECTEUR PROVINCIAL… » contre « M3 / DPESK - LE DIRECTEUR… »). Si la fiche ne peut pas être lue un jour, l'outil garde la version de la liste. L'historique enregistre alors un faux « rectificatif », annulé le lendemain. | Faible : bruit dans l'historique |
-| 3 | **Run interrompu qui reste « en cours »** | Si le PC s'éteint ou si le programme est tué pendant une collecte, la ligne du journal (`collecte_runs`) reste à `en_cours` pour toujours. Ce n'est pas une collecte en cours, c'est une collecte morte. L'alerte de supervision n'est pas trompée : elle ne regarde que les succès. | Faible : à savoir lire |
+| 3 | **Run interrompu qui reste « en cours »** | Si le PC s'éteint ou si le programme est tué pendant une collecte, la ligne du journal (`collecte_runs`) reste à `en_cours`. **Corrigé le 25/09** : au lancement suivant, un run `en_cours` depuis plus de 6 h (`PMMP_STALE_RUN_HOURS`) passe en `echec` avec la raison `interrompu : …`, et un message `ATTENTION` apparaît dans le log. Pendant les 6 premières heures, la ligne reste `en_cours`. | Faible : à savoir lire |
 | 4 | **Collation Windows de la base** | La base du PC de développement trie le texte selon les règles de Windows (`English_United States.1252`). Les textes arabes sont stockés correctement. Seul **l'ordre de tri** peut surprendre. Sur un serveur Linux, créer la base avec une locale UTF-8. | Faible |
 | 5 | **Fuseau horaire (`tzdata`)** | L'heure du Maroc est calculée à partir d'une bibliothèque qui suit les changements d'heure officiels (`tzdata`). Le Maroc change parfois ses règles, par exemple pendant le Ramadan. Il faut garder cette bibliothèque à jour (`pip install -U tzdata`), sinon les heures et la fenêtre de collecte peuvent être décalées d'une heure. | Moyenne : à faire régulièrement |
 | 6 | **`reservation_pme` toujours vide** | L'information « marché réservé aux PME » n'apparaît sur aucune des pages réelles examinées : la colonne est vide partout. La date de publication ne vient que de la liste, pas de la fiche. Un filtre « réservé PME » ne marchera pas tant qu'on n'a pas trouvé où le portail affiche cette information. | Moyenne pour les futures fonctions de recherche |
@@ -136,10 +142,25 @@ Petites tâches de consolidation, issues de ce stage :
   Décision n° 1.
 - Vérifier les premiers runs réels (point 9). Ajuster `PMMP_MAX_ITEMS` si les
   runs finissent en `partiel`.
-- Aligner `.env.example` sur `PMMP_MAX_ITEMS=1200` et mettre à jour le calcul
-  « 2 000 fiches par run » du README §6.
-- Lancer les 5 tests qui demandent PostgreSQL. Ils n'ont pas été relancés depuis
-  le changement du mot de passe `postgres` (commande dans `AUDIT.md`).
+- ~~Aligner `.env.example` sur `PMMP_MAX_ITEMS=1200`~~ : fait le 25/09.
+- ~~Lancer les tests qui demandent PostgreSQL~~ : faits le 25/09 sur une base
+  jetable, tous verts (voir `CHECKLIST.md`).
+
+Manques identifiés le 25/09 (détail et raisons dans `CHECKLIST.md`) :
+
+- **Aucune alerte en cas d'échec** (email, Teams…). Aujourd'hui, il faut aller
+  lire les logs ou `collecte_runs`. C'est le manque le plus important.
+- **Aucune sauvegarde automatique de la base.** La commande manuelle a été testée
+  (voir « Sauvegarde de la base » ci-dessous). Il reste à la planifier.
+- **Un DCE rectifié sur le portail n'est jamais retéléchargé** : dès qu'un DCE
+  est sur le disque, l'outil le considère `deja_present`.
+- **Le HTML brut s'accumule sans purge** dans `storage/raw_html/` : chaque run
+  réarchive toutes les pages de liste lues. Il faut décider d'une durée de
+  conservation.
+- **Collecte le week-end et les jours fériés** : question ouverte, non tranchée
+  (aujourd'hui : tous les jours).
+- **Le dépôt GitHub est public** (vérifié le 25/09) : il ne contient aucun
+  secret, mais il décrit l'infrastructure. Le passer en privé si ce n'est pas voulu.
 
 ---
 
@@ -160,6 +181,96 @@ tableau dit où chacun se trouve, pas sa valeur.
 
 ---
 
+## Exploitation : arrêter, relancer, revenir en arrière, sauvegarder
+
+Toutes les commandes sont en PowerShell, à lancer depuis le dossier du projet avec
+le venv activé (`.venv\Scripts\Activate.ps1`).
+
+### Arrêter le bot
+
+```powershell
+# 1. Empêcher les prochains lancements automatiques (réversible)
+Disable-ScheduledTask -TaskName "PMMP-Veille"
+# 2. Arrêter un run lancé par la tâche planifiée
+Stop-ScheduledTask -TaskName "PMMP-Veille"
+#    (non vérifié : le python.exe lancé par la tâche peut survivre à cet arrêt ;
+#     contrôler avec l'étape 3 qu'il ne reste aucun processus)
+# 3. Arrêter un run lancé à la main : Ctrl+C dans sa fenêtre (une seule fois = arrêt propre).
+#    Sinon, retrouver le processus puis l'arrêter :
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object CommandLine -like "*pmmp_collector crawl*" | Select-Object ProcessId, CommandLine
+Stop-Process -Id <ProcessId>
+```
+
+Un run arrêté brutalement (étape 2, ou étape 3 sans Ctrl+C) laisse sa ligne
+`collecte_runs` à `en_cours`. Elle passera en `echec` (« interrompu ») au premier
+run lancé plus de 6 h après. Le verrou « un seul run à la fois » se libère tout
+seul : il n'y a aucun fichier à supprimer.
+
+### Relancer
+
+```powershell
+Enable-ScheduledTask -TaskName "PMMP-Veille"      # réactive le lancement de 06:00
+python -m pmmp_collector status                    # fenêtre ouverte ? dernier run ?
+python -m pmmp_collector crawl --force             # test manuel plafonné (1 page, 10 fiches), à toute heure
+Start-ScheduledTask -TaskName "PMMP-Veille"        # comme à 06:00 (refusé hors fenêtre, code 2)
+```
+
+Si un run tourne déjà, le second est refusé (code `4`, « un autre run du
+collecteur est déjà en cours »). C'est normal : il suffit d'attendre la fin du premier.
+
+### Revenir à une version précédente (régression)
+
+La tâche exécute **le code de la branche Git extraite** dans le dossier du projet.
+
+```powershell
+git log --oneline -15                      # repérer le dernier commit sain
+git revert <commit_fautif>                 # annule un commit en gardant l'historique (à préférer)
+# ou, en urgence, revenir temporairement à un état antérieur :
+git switch --detach <commit_sain>          # pour revenir ensuite : git switch <branche>
+pip install -r requirements.txt            # si requirements.txt a changé entre les deux
+pytest                                     # vérifier avant la prochaine collecte
+```
+
+Revenir en arrière dans le code **ne remet pas la base de données** dans son état
+précédent : pour ça, il faut une sauvegarde (ci-dessous). Les changements du 25/09
+n'ont pas modifié le schéma de la base.
+
+### Sauvegarde de la base
+
+**Il n'existe aujourd'hui aucune sauvegarde automatique de `pmmp_veille`.** C'est
+un vrai manque : avec un disque perdu ou une mauvaise manipulation, tout
+l'historique des modifications disparaît. La commande ci-dessous a été **testée le
+25/09** : sauvegarde avec `pmmp_app`, puis restauration réussie dans une base de test.
+
+```powershell
+# Sauvegarde (demande le mot de passe de pmmp_app, voir .env)
+& "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" -h localhost -U pmmp_app -d pmmp_veille -Fc --no-owner -f "pmmp_veille_$(Get-Date -Format yyyyMMdd).dump"
+# Restauration dans une base VIDE créée au préalable (superutilisateur)
+& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -h localhost -U postgres -d <base_vide> --no-owner <fichier>.dump
+```
+
+À faire : planifier cette sauvegarde (par exemple chaque jour après 10:00) et
+copier les fichiers **ailleurs que sur ce PC**. Les DCE (`storage/dce/`) sont de
+simples fichiers : à inclure dans la sauvegarde du disque.
+
+### Erreurs fréquentes
+
+| Message ou symptôme | Cause | Que faire |
+|---|---|---|
+| `REFUS : il est … hors de la fenêtre autorisée` (code 2) | Lancement en dehors de 06:00–10:00 | Normal. Pour un test : `--force`. |
+| `REFUS : un autre run du collecteur est déjà en cours` (code 4) | Un run tourne déjà (tâche planifiée ou autre fenêtre) | Attendre sa fin. |
+| `ÉCHEC avant démarrage … connexion PostgreSQL impossible` (code 1) | PostgreSQL arrêté, mot de passe changé ou `.env` absent | Démarrer le service PostgreSQL, vérifier `PMMP_DATABASE_URL`. |
+| `CIRCUIT BREAKER DÉCLENCHÉ` (code 1) | Le portail a répondu en erreur ou trop lentement 3 fois de suite | Ne rien forcer : ça repartira le lendemain. Si ça dure, regarder le portail à la main. |
+| Statut `partiel` (code 3) | La fenêtre s'est fermée à 10:00 avant la fin du lot | Normal au début. Si ça arrive tous les jours, baisser `PMMP_MAX_ITEMS`. |
+| Statut `echec`, raison `aucune_consultation_extraite` | Le portail a changé son HTML | Voir README §10 : ajuster `parsers.py`. |
+| `ATTENTION : le run n°… ne s'est jamais terminé` | Un run précédent a été tué (PC éteint…) | Pour information : la ligne est passée en `echec`. |
+| Aucun log dans `storage/logs/` un matin | PC éteint, en veille ou session fermée à 06:00 | Voir l'encadré en tête. |
+
+Tableau complet des erreurs de base de données : README §4.
+
+---
+
 ## Où trouver quoi
 
 | Besoin | Fichier |
@@ -171,3 +282,6 @@ tableau dit où chacun se trouve, pas sa valeur.
 | Si le portail change son HTML | `src/pmmp_collector/parsers.py` (seul fichier à ajuster), README §10 |
 | Rapport technique d'audit | `AUDIT.md` |
 | Déroulé de la démo du 25/09 | `DEMO.md` |
+| Vérification complète du 25/09 (checklist) | `CHECKLIST.md` |
+| Code source | `src/pmmp_collector/`. Dossier du projet sur le PC de développement : `C:\Users\abder_r9rl0a3\pmmp_collector` |
+| Dépendances | `requirements.txt` (repris dans `pyproject.toml`). Python 3.11 ou plus (version utilisée : 3.14.5) |
