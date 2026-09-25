@@ -10,6 +10,18 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/tableau-de-bord').then((m) => m.TableauDeBord),
   },
   {
+    path: 'consultations',
+    title: 'Consultations' + SUFFIXE,
+    loadComponent: () =>
+      import('./pages/consultations/liste-consultations').then((m) => m.ListeConsultations),
+  },
+  {
+    path: 'consultations/:org/:ref',
+    title: 'Fiche consultation' + SUFFIXE,
+    loadComponent: () =>
+      import('./pages/consultation-detail/consultation-detail').then((m) => m.ConsultationDetail),
+  },
+  {
     path: 'collecte',
     title: 'Suivi de la collecte' + SUFFIXE,
     loadComponent: () => import('./pages/suivi-collecte').then((m) => m.SuiviCollecte),
