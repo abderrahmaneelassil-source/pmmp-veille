@@ -1,0 +1,47 @@
+<div class="bandeau" role="note">
+  Usage interne — lecture seule, sans authentification. À n'utiliser que sur ce poste.
+</div>
+
+<div class="coque">
+  <nav class="menu" aria-label="Navigation principale">
+    <a class="menu__marque" routerLink="/">
+      <span class="menu__nom">Veille PMMP</span>
+      <span class="menu__sous-titre">Marchés publics</span>
+    </a>
+
+    <ul class="menu__liste">
+      @for (e of menu; track e.lien) {
+        <li>
+          <a
+            class="menu__lien"
+            [routerLink]="e.lien"
+            routerLinkActive="menu__lien--actif"
+            [routerLinkActiveOptions]="{ exact: e.exact ?? false }"
+            ariaCurrentWhenActive="page"
+            >{{ e.libelle }}</a
+          >
+        </li>
+      }
+    </ul>
+
+    <p class="menu__section">À venir</p>
+    <ul class="menu__liste">
+      @for (e of aVenir; track e.libelle) {
+        <li>
+          <a
+            class="menu__lien menu__lien--a-venir"
+            routerLink="/feuille-de-route"
+            [fragment]="e.ancre"
+            [attr.title]="e.libelle + ' : prévu, voir la feuille de route'"
+          >
+            {{ e.libelle }} <span class="etiquette-bientot">Bientôt</span>
+          </a>
+        </li>
+      }
+    </ul>
+  </nav>
+
+  <main class="contenu">
+    <router-outlet />
+  </main>
+</div>
