@@ -185,3 +185,24 @@ def test_full_cycle_on_live_fixtures(conn, pipelines):
     assert conn.execute(
         "SELECT count(*) n FROM historique_modifications h LEFT JOIN consultations c ON c.id = h.consultation_id "
         "WHERE c.id IS NULL").fetchone()["n"] == 0
+
+
+def test_stale_running_run_is_marked_dead(conn):
+    """PC éteint ou processus tué pendant un run : la ligne 'en_cours' ne reste pas une fausse trace."""
+    from pmmp_collector import db
+
+    dead = db.start_run(conn, "prod", False)
+    recent = db.start_run(conn, "prod", False)
+    finished = db.start_run(conn, "prod", False)
+    db.finish_run(conn, finished, "succes", "finished", {})
+    conn.execute("UPDATE collecte_runs SET demarre_le = now() - interval '7 hours' WHERE id IN (%s, %s)",
+                 (dead, finished))
+    conn.execute("UPDATE collecte_runs SET demarre_le = now() - interval '1 hour' WHERE id = %s", (recent,))
+
+    assert [r["id"] for r in db.mark_stale_runs(conn, 6)] == [dead]
+    runs = {r["id"]: r for r in conn.execute("SELECT id, statut, raison, termine_le FROM collecte_runs")}
+    assert runs[dead]["statut"] == "echec" and runs[dead]["raison"].startswith("interrompu : resté en_cours plus de 6 h")
+    assert runs[dead]["termine_le"] is None  # heure réelle de l'arrêt inconnue : pas inventée
+    assert runs[recent]["statut"] == "en_cours"  # peut être un run légitime en cours
+    assert runs[finished]["statut"] == "succes"
+    assert db.mark_stale_runs(conn, 6) == []  # idempotent

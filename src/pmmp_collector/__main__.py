@@ -1,6 +1,7 @@
 """Ligne de commande : python -m pmmp_collector {crawl,init-db,status}
 
-Codes de sortie de `crawl` : 0 succès, 1 échec, 2 refusé (hors fenêtre), 3 partiel.
+Codes de sortie de `crawl` : 0 succès, 1 échec, 2 refusé (hors fenêtre), 3 partiel,
+4 refusé (un autre run est déjà en cours).
 """
 from __future__ import annotations
 
@@ -11,6 +12,9 @@ import sys
 os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "pmmp_collector.settings")
 
 from pmmp_collector.config import ConfigError, load_config  # noqa: E402
+from pmmp_collector.runlock import RunAlreadyInProgress, run_lock  # noqa: E402
+
+EXIT_ALREADY_RUNNING = 4
 
 
 def check_database(cfg) -> str | None:
@@ -34,6 +38,28 @@ def check_database(cfg) -> str | None:
     return None
 
 
+def mark_dead_runs(cfg) -> None:
+    """Runs 'en_cours' trop anciens (PC éteint ou processus tué pendant un run) : passés en échec.
+
+    Appelé verrou pris : aucun autre run de ce PC n'est en cours."""
+    if not cfg.database_url:
+        return
+    from pmmp_collector import db
+
+    try:
+        with db.connect(cfg.database_url, cfg.tz.key) as conn:
+            dead = db.mark_stale_runs(conn, cfg.stale_run_hours)
+    except db.psycopg.Error as exc:
+        print(f"ATTENTION : vérification des runs interrompus impossible : {exc}", file=sys.stderr)
+        return
+    for run in dead:
+        print(
+            f"ATTENTION : le run n°{run['id']} (démarré le {run['demarre_le']:%Y-%m-%d %H:%M}) ne s'est jamais "
+            f"terminé (PC éteint ou processus tué ?). Il est marqué 'echec' dans collecte_runs.",
+            file=sys.stderr,
+        )
+
+
 def cmd_crawl(args) -> int:
     cfg = load_config()
     if not cfg.in_window() and not args.force:
@@ -44,10 +70,24 @@ def cmd_crawl(args) -> int:
             file=sys.stderr,
         )
         return 2
+    try:
+        with run_lock(cfg.storage_dir):
+            return _crawl(cfg, args)
+    except RunAlreadyInProgress as exc:
+        print(
+            f"REFUS : un autre run du collecteur est déjà en cours ({exc}). Un seul run à la fois "
+            "(une seule requête à la fois vers le portail). Aucune requête envoyée.",
+            file=sys.stderr,
+        )
+        return EXIT_ALREADY_RUNNING
+
+
+def _crawl(cfg, args) -> int:
     problem = check_database(cfg)
     if problem:
         print(f"ÉCHEC avant démarrage (aucune requête envoyée au portail) : {problem}", file=sys.stderr)
         return 1
+    mark_dead_runs(cfg)
 
     from scrapy.crawler import CrawlerProcess
     from scrapy.utils.project import get_project_settings

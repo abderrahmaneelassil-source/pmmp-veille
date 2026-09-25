@@ -24,6 +24,7 @@ os.environ.update({
     "PMMP_FIXTURES_DIR": str(Path(_TMP) / "fixtures"),
 })
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))  # paquet api/ (API de consultation)
 
 
 @pytest.fixture

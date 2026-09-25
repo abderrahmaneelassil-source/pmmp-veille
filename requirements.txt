@@ -1,9 +1,17 @@
 scrapy>=2.19,<3
+# Importé directement par parsers.py (déjà installé avec Scrapy)
+parsel>=1.8
 pydantic>=2.6,<3
 psycopg[binary]>=3.1,<4
 python-dotenv>=1.0
 # Base de fuseaux horaires pour zoneinfo (indispensable sous Windows)
 tzdata>=2024.1
 
+# API de consultation en lecture seule (api/, README §12) ; réutilise psycopg ci-dessus
+fastapi>=0.141,<1
+uvicorn>=0.54,<1
+
 # Tests
 pytest>=8
+# Client HTTP de TestClient (tests/test_api.py) ; Starlette déconseille désormais httpx
+httpx2>=2.13,<3

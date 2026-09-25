@@ -105,6 +105,7 @@ class Config:
     force_max_pages: int
     force_max_items: int
     download_dce: bool
+    stale_run_hours: float
     storage_dir: Path
     fixtures_dir: Path
     log_level: str
@@ -152,6 +153,12 @@ def load_config() -> Config:
     window_spec = _env("PMMP_ALLOWED_WINDOW", "06:00-10:00")
     start, end = parse_window(window_spec)
 
+    # Au-delà, un run 'en_cours' est considéré comme mort. Doit dépasser la durée maximale
+    # normale d'un run : fenêtre horaire (4 h) et limite de la tâche planifiée (5 h).
+    stale_run_hours = _env_float("PMMP_STALE_RUN_HOURS", 6.0)
+    if stale_run_hours < 1:
+        raise ConfigError("PMMP_STALE_RUN_HOURS doit valoir au moins 1 (heure)")
+
     try:
         tz = ZoneInfo(_env("PMMP_TIMEZONE", "Africa/Casablanca"))
     except Exception as exc:  # ZoneInfoNotFoundError, ValueError
@@ -172,12 +179,13 @@ def load_config() -> Config:
         download_timeout=_env_int("PMMP_DOWNLOAD_TIMEOUT", 30),
         mode=mode,
         max_pages=max(0, _env_int("PMMP_MAX_PAGES", 0)),
-        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 2000)),
+        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 1200)),
         page_size=page_size,
         incremental=_env_bool("PMMP_INCREMENTAL", True),
         force_max_pages=max(1, _env_int("PMMP_FORCE_MAX_PAGES", 1)),
         force_max_items=max(1, _env_int("PMMP_FORCE_MAX_ITEMS", 10)),
         download_dce=_env_bool("PMMP_DOWNLOAD_DCE", True),
+        stale_run_hours=stale_run_hours,
         storage_dir=Path(_env("PMMP_STORAGE_DIR", "storage")).resolve(),
         fixtures_dir=Path(_env("PMMP_FIXTURES_DIR", "fixtures")).resolve(),
         log_level=_env("PMMP_LOG_LEVEL", "INFO").upper(),

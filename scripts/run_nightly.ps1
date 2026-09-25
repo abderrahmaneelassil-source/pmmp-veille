@@ -25,7 +25,7 @@ $env:PYTHONIOENCODING = "utf-8"
 # logs Scrapy) arreterait le script, et "*>>" ecrirait le log en UTF-16.
 cmd.exe /d /c "`"$Python`" -m pmmp_collector crawl >> `"$LogFile`" 2>&1"
 $Code = $LASTEXITCODE
-Add-Content -Path $LogFile -Value ("{0} code de sortie {1} (0=succes 1=echec 2=refuse 3=partiel)" -f (Get-Date -Format s), $Code) -Encoding utf8
+Add-Content -Path $LogFile -Value ("{0} code de sortie {1} (0=succes 1=echec 2=refuse 3=partiel 4=run deja en cours)" -f (Get-Date -Format s), $Code) -Encoding utf8
 
 Get-ChildItem $LogDir -Filter "run_*.log" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-60) } | Remove-Item -Force
 exit $Code

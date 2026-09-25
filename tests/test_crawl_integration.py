@@ -41,8 +41,9 @@ SIZE_SELECT = "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
 
 def listing(page_size: int, deadlines: dict) -> bytes:
     """Page de liste ; la liste déroulante de taille de page reflète le dernier choix posté."""
+    selected = ' selected="selected"'  # hors de l'f-string : antislash interdit avant Python 3.12
     options = "".join(
-        f'<option value="{n}"{" selected=\"selected\"" if n == page_size else ""}>{n}</option>'
+        f'<option value="{n}"{selected if n == page_size else ""}>{n}</option>'
         for n in (10, 20, 50, 100, 500)
     )
     rows = "".join(ROW.format(ref=1000 + i, deadline=deadlines.get(1000 + i, DEADLINE)) for i in range(N_ROWS))
@@ -133,8 +134,8 @@ def open_window() -> str:
     return f"{start:%H:%M}-{end:%H:%M}"
 
 
-def run_crawl(portal, tmp_path, *args, database_url="", window=None):
-    env = {
+def crawl_env(portal, tmp_path, database_url="", window=None):
+    return {
         **os.environ,
         "PMMP_BASE_URL": f"http://127.0.0.1:{portal.server_port}/",
         "PMMP_SEARCH_PATH": "liste.html",
@@ -150,9 +151,13 @@ def run_crawl(portal, tmp_path, *args, database_url="", window=None):
         "PYTHONPATH": str(ROOT / "src"),
         "PYTHONIOENCODING": "utf-8",
     }
+
+
+def run_crawl(portal, tmp_path, *args, database_url="", window=None):
     proc = subprocess.run(
         [sys.executable, "-m", "pmmp_collector", "crawl", *args],
-        cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
+        cwd=tmp_path, env=crawl_env(portal, tmp_path, database_url, window),
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
     )
     last_run = tmp_path / "storage" / "last_run.json"
     summary = json.loads(last_run.read_text(encoding="utf-8")) if last_run.exists() else None
@@ -185,6 +190,32 @@ def test_accepted_inside_window_without_force(portal, tmp_path):
     assert summary["statut"] == "succes" and summary["force"] is False
     assert "Run forcé" not in proc.stderr  # pas de plafond --force : vrai run planifié
     assert summary["consultations_listees"] == N_ROWS
+
+
+def test_second_crawl_refused_while_first_is_running(portal, tmp_path):
+    """Lancement à la main pendant que la tâche planifiée tourne : refusé (code 4), sans requête."""
+    first = subprocess.Popen(
+        [sys.executable, "-m", "pmmp_collector", "crawl"],
+        cwd=tmp_path, env=crawl_env(portal, tmp_path, window=open_window()),
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not FakePortal.log and time.monotonic() < deadline:  # le 1er run a démarré
+            time.sleep(0.2)
+        assert FakePortal.log, "le premier run n'a envoyé aucune requête"
+        proc, _ = run_crawl(portal, tmp_path, "--force")
+        assert proc.returncode == 4, proc.stderr[-3000:]
+        assert "déjà en cours" in proc.stderr and "Aucune requête envoyée" in proc.stderr
+        assert first.wait(timeout=120) == 0
+    finally:
+        if first.poll() is None:
+            first.kill()
+    # Seules les requêtes du premier run : robots.txt + liste + taille de page + fiche et DCE par consultation.
+    assert len(FakePortal.log) == 3 + 2 * N_ROWS
+    assert json.loads((tmp_path / "storage" / "last_run.json").read_text(encoding="utf-8"))["statut"] == "succes"
+    proc, summary = run_crawl(portal, tmp_path, "--force")  # verrou rendu : un nouveau run passe
+    assert proc.returncode == 0, proc.stderr[-3000:]
 
 
 def test_circuit_breaker_stops_real_crawl(portal, tmp_path):
@@ -299,4 +330,23 @@ def test_incremental_batches_resume_night_after_night(portal, tmp_path, monkeypa
         "SELECT c.ref_consultation ref, h.champ FROM historique_modifications h "
         "JOIN consultations c ON c.id = h.consultation_id").fetchall()
     assert {(h["ref"], h["champ"]) for h in hist} == {("1002", "date_limite_depot"), ("1002", "statut")}
+    conn.close()
+
+
+@pytest.mark.skipif(not TEST_DB, reason="PMMP_TEST_DATABASE_URL non défini (base jetable)")
+def test_crawl_marks_dead_run_before_starting(portal, tmp_path, monkeypatch):
+    """Run tué la veille (resté 'en_cours') : le run suivant le signale et le passe en échec."""
+    from pmmp_collector import db
+
+    conn = db.connect(TEST_DB)
+    db.init_schema(conn)
+    conn.execute("TRUNCATE historique_modifications, consultations, collecte_runs RESTART IDENTITY CASCADE")
+    conn.execute("INSERT INTO collecte_runs (mode, demarre_le) VALUES ('prod', now() - interval '1 day')")
+    monkeypatch.setenv("PMMP_MODE", "prod")
+
+    proc, summary = run_crawl(portal, tmp_path, "--force", database_url=TEST_DB)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    assert "le run n°1" in proc.stderr and "ne s'est jamais terminé" in proc.stderr
+    runs = conn.execute("SELECT id, statut FROM collecte_runs ORDER BY id").fetchall()
+    assert [(r["id"], r["statut"]) for r in runs] == [(1, "echec"), (2, "succes")]
     conn.close()

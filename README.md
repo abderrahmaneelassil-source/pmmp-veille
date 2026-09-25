@@ -266,8 +266,9 @@ cp .env.example .env    # puis éditer .env
 | `PMMP_ALLOWED_WINDOW` / `PMMP_TIMEZONE` | fenêtre autorisée (voir l'encadré en tête et §8) | `06:00-10:00` / `Africa/Casablanca` |
 | `PMMP_CB_MAX_CONSECUTIVE` / `PMMP_CB_SLOW_SECONDS` | circuit breaker (N entre 1 et 10) / seuil de lenteur | `3` / `15` |
 | `PMMP_DOWNLOAD_TIMEOUT` | timeout par requête (s) | `30` |
+| `PMMP_STALE_RUN_HOURS` | au-delà (h), un run resté `en_cours` est considéré comme mort (PC éteint, kill) et passé en `echec` au démarrage du run suivant | `6` |
 | `PMMP_MODE` | `prod` ou `test` | `prod` |
-| `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `2000` |
+| `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `1200` |
 | `PMMP_INCREMENTAL` | ne visiter que les consultations nouvelles, modifiées ou en échec (voir §6) | `true` |
 | `PMMP_PAGE_SIZE` | résultats par page de liste : 10, 20, 50, 100 ou 500 | `100` |
 | `PMMP_MAX_PAGES` | limite optionnelle de pages de liste (0 = aucune) | `0` |
@@ -294,7 +295,13 @@ le middleware.
 
 Codes de sortie : `0` succès · `1` échec (erreur, circuit breaker, aucune
 consultation extraite) · `2` refusé (hors fenêtre) · `3` partiel (la fenêtre
-s'est fermée pendant le run).
+s'est fermée pendant le run) · `4` refusé (un autre run est déjà en cours).
+
+**Un seul run à la fois** : `crawl` prend un verrou du système sur
+`storage/.crawl.lock`. Un second lancement (à la main pendant la tâche planifiée,
+par exemple) est refusé avec le code `4`, sans aucune requête. Le verrou est
+libéré automatiquement à la fin du processus, même tué ou si le PC redémarre :
+il n'y a jamais de fichier à supprimer à la main.
 
 ### Collecte par lots
 
@@ -318,8 +325,8 @@ Le portail liste environ **100 000 consultations**. Avec les règles de collecte
    sûr qu'un numéro de page mémorisé, car les nouvelles publications décalent
    les pages d'un jour à l'autre.
 
-Ordre de grandeur, avec 2 000 fiches par run : la **première** collecte
-complète prend ≈ 50 jours (≈ 100 000 consultations). Ensuite, chaque run ne
+Ordre de grandeur, avec 1 200 fiches par run : la **première** collecte
+complète prend ≈ 80 jours (≈ 100 000 consultations). Ensuite, chaque run ne
 visite que les nouveautés et les modifications. Pour accélérer la première
 collecte, désactivez temporairement les DCE (`PMMP_DOWNLOAD_DCE=false` : deux
 fois moins de requêtes par consultation) ou augmentez le lot, à condition que le
@@ -424,7 +431,7 @@ commentaire du script) et purge les logs de plus de 60 jours.
 ```powershell
 schtasks /query /tn "PMMP-Veille" /v /fo LIST   # vérifier : Next Run Time, Last Result
 Start-ScheduledTask -TaskName "PMMP-Veille"      # lancer à la main (hors fenêtre : refus, code 2)
-Get-ScheduledTaskInfo -TaskName "PMMP-Veille"    # LastTaskResult = code de sortie (0/1/2/3)
+Get-ScheduledTaskInfo -TaskName "PMMP-Veille"    # LastTaskResult = code de sortie (0/1/2/3/4)
 ```
 
 Réglages : une seule instance à la fois ; lancée dès que possible si le PC
@@ -470,6 +477,12 @@ SELECT * FROM collecte_runs ORDER BY id DESC LIMIT 10;
 Un run « terminé » qui n'a extrait **aucune** consultation est enregistré en
 `echec` (raison `aucune_consultation_extraite`). C'est le symptôme typique d'un
 changement du HTML du portail.
+
+Un run **tué** (PC éteint ou redémarré, processus arrêté) ne peut pas écrire sa
+fin : sa ligne reste `en_cours`. Au démarrage suivant, `crawl` passe en `echec`
+tout run `en_cours` depuis plus de `PMMP_STALE_RUN_HOURS` (6 h par défaut), avec
+la raison `interrompu : …`, et l'écrit dans le log (`ATTENTION : le run n°…`).
+`termine_le` reste vide : l'heure réelle de l'arrêt n'est pas connue.
 
 ## 9. Règles métier
 
@@ -536,8 +549,203 @@ pmmp_collector/
 │   ├── db.py                     requêtes SQL
 │   ├── extensions.py             suivi des runs, last_success.json
 │   └── storage.py                archivage HTML brut, fichiers DCE
+├── api/                          API de consultation en lecture seule (§12)
+│   ├── main.py                   routes GET
+│   ├── schemas.py                formats des réponses
+│   └── db.py                     connexion lecture seule, 3 connexions au plus
 ├── storage/{dce,raw_html,logs}/
 ├── fixtures/{synthetic,live}/
 ├── tests/
 └── scripts/run_nightly.sh, run_nightly.ps1
 ```
+
+## 12. API de consultation (lecture seule)
+
+> ⚠️ **Pas d'authentification : choix TEMPORAIRE.** N'importe qui pouvant joindre
+> le port lit toutes les données. L'API doit donc rester sur `127.0.0.1` (poste
+> local). **Avant tout accès depuis l'extérieur du poste** (autre machine, réseau,
+> Internet, interface Angular hébergée ailleurs), il faut ajouter une
+> authentification et HTTPS. Ne jamais la lancer avec `--host 0.0.0.0`.
+
+Le dossier `api/` est un composant **séparé** du collecteur : il n'importe rien
+de `src/pmmp_collector/` et ne fait que **lire** la base. Le collecteur reste seul
+à écrire. Toutes les routes sont en `GET`. Un `POST`, `PUT` ou `DELETE` reçoit
+`405`.
+
+### Comment ça marche
+
+```
+Navigateur (ou Angular)  ──HTTP GET──▶  uvicorn (serveur web, port 8000)
+                                              │
+                                              ▼
+                                        FastAPI : api/main.py (routes)
+                                              │  api/db.py : session en lecture seule
+                                              ▼
+                                        PostgreSQL : base pmmp_veille
+                                              ▲
+Collecteur Scrapy (tâche planifiée) ──écrit──┘
+```
+
+- **uvicorn** est le serveur web. Il écoute sur `127.0.0.1:8000` et transmet
+  chaque requête à FastAPI.
+- **FastAPI** (`api/main.py`) choisit la route, vérifie les paramètres (un
+  `statut` inconnu reçoit `422`) et renvoie du JSON. Il génère aussi tout seul la
+  page `/docs`.
+- À chaque requête, `api/db.py` ouvre une connexion **en lecture seule** avec
+  `PMMP_DATABASE_URL` du `.env`, exécute la requête SQL, puis ferme la connexion.
+- Le **collecteur** est le seul à écrire dans la base. L'API affiche ce qu'il a
+  collecté, sans rien modifier. Les deux tournent indépendamment : l'API peut
+  rester ouverte pendant un run.
+
+### Avant la première utilisation (une seule fois)
+
+1. Le projet est installé (§3) et la base existe (§4). Le `.env` contient
+   `PMMP_DATABASE_URL`, le même que pour le collecteur.
+2. Installer les dépendances de l'API (FastAPI, uvicorn), qui sont dans
+   `requirements.txt` :
+
+   ```powershell
+   cd pmmp_collector              # dossier du projet
+   .venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+
+### Ouvrir l'API, étape par étape (Windows, PowerShell)
+
+1. **Vérifier que PostgreSQL tourne** (voir aussi §4.1). Le résultat doit être
+   `Running` :
+
+   ```powershell
+   Get-Service postgresql*
+   ```
+
+   S'il est arrêté : `Start-Service postgresql-x64-18`, dans un PowerShell
+   ouvert en administrateur.
+
+2. **Aller dans le dossier du projet** et activer l'environnement Python :
+
+   ```powershell
+   cd pmmp_collector              # dossier du projet
+   .venv\Scripts\Activate.ps1
+   ```
+
+3. **Lancer l'API** :
+
+   ```powershell
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   Sans activer l'environnement, cette commande seule fait la même chose :
+
+   ```powershell
+   .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   L'API est prête quand le terminal affiche :
+
+   ```
+   INFO:     Application startup complete.
+   INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+   ```
+
+   **Laisser ce terminal ouvert** : fermer la fenêtre arrête l'API.
+
+4. **Ouvrir dans le navigateur** : **<http://127.0.0.1:8000/docs>**.
+   L'adresse <http://127.0.0.1:8000> affichée par uvicorn y redirige aussi.
+
+5. **Arrêter l'API** : dans le terminal, `Ctrl+C`.
+
+Après une modification du code, il faut arrêter (`Ctrl+C`) puis relancer l'API
+pour qu'elle soit prise en compte.
+
+### Utiliser la page /docs (Swagger)
+
+Chaque route y est testable dans le navigateur. Cette page sert aussi de
+démonstration si l'interface Angular n'est pas prête.
+
+1. Cliquer sur une route, par exemple `GET /consultations`.
+2. Cliquer sur **Try it out**.
+3. Remplir les paramètres voulus, par exemple `statut` = `en_cours` et `limit` =
+   `5`, ou les laisser vides.
+4. Cliquer sur **Execute**. La réponse JSON s'affiche sous **Response body**,
+   avec son code (`200`, `404`…). L'adresse exacte appelée s'affiche sous
+   **Request URL** ; elle peut être copiée dans le navigateur.
+
+Parcours conseillé pour une démonstration :
+
+| Étape | Route | Ce qu'elle montre |
+|---|---|---|
+| 1 | `GET /health` | L'API tourne, connectée à `pmmp_veille` en lecture seule. |
+| 2 | `GET /collecte/dernier-run` | La collecte a tourné : heure, statut, nombre de consultations. |
+| 3 | `GET /consultations` avec `statut` = `en_cours` | Les appels d'offres en cours, échéance la plus proche d'abord. |
+| 4 | `GET /consultations/{org_acronyme}/{ref_consultation}` | Le détail d'une consultation. Copier `org_acronyme` et `ref_consultation` depuis l'étape 3. |
+| 5 | La même route avec une référence inventée | Réponse `404` propre. |
+
+Chaque route s'ouvre aussi directement dans la barre d'adresse du navigateur,
+par exemple :
+
+- <http://127.0.0.1:8000/health>
+- <http://127.0.0.1:8000/consultations?statut=en_cours&limit=5>
+- <http://127.0.0.1:8000/consultations?categorie=travaux>
+- <http://127.0.0.1:8000/collecte/dernier-run>
+
+### En cas de problème
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `{"detail":"Not Found"}` (404) sur <http://127.0.0.1:8000> | Version de l'API antérieure à la redirection, ou API lancée avant la mise à jour du code | Ouvrir <http://127.0.0.1:8000/docs>, ou arrêter puis relancer l'API. |
+| `ModuleNotFoundError: No module named 'api'` | Commande lancée hors du dossier du projet | Aller dans le dossier du projet (`cd pmmp_collector`), puis relancer. |
+| `No module named uvicorn` ou `No module named fastapi` | Dépendances non installées, ou `.venv` non activé | `pip install -r requirements.txt` avec le `.venv` activé, ou utiliser `.venv\Scripts\python -m uvicorn …`. |
+| `[Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000)` | Une API tourne déjà sur le port 8000 (souvent dans un autre terminal) | Utiliser celle qui tourne, ou l'arrêter (`Ctrl+C` dans son terminal). Sinon, lancer sur un autre port avec `--port 8001` puis ouvrir <http://127.0.0.1:8001/docs>. |
+| `/health` répond `{"api":"ok","base":"indisponible"}` (503) | PostgreSQL arrêté, `.env` introuvable (commande lancée hors du projet) ou mot de passe incorrect | Vérifier `Get-Service postgresql*` (démarrage : §4.1) et `PMMP_DATABASE_URL` dans `.env`. La cause exacte s'affiche dans le terminal de l'API. |
+| La page ne s'ouvre pas du tout (« connexion refusée ») | L'API n'est pas lancée, ou son terminal a été fermé | Refaire l'étape 3. |
+| `/consultations` renvoie `"total": 0` | La base est vide : aucun run n'a encore collecté de données | Normal avant le premier run ; voir `/collecte/dernier-run`. |
+
+### Routes
+
+| Route | Rôle |
+|---|---|
+| `GET /health` | L'API répond et la base est joignable. Indique la base utilisée et la lecture seule. `503` si la base est injoignable. |
+| `GET /consultations` | Liste triée par date limite de dépôt, la plus proche d'abord. Filtres : `categorie`, `acheteur` (texte contenu, casse ignorée), `statut` (`en_cours`, `cloture`, `annule`, `reporte`), `date_limite_avant` (exclue), `date_limite_apres` (incluse). Pagination : `limit` (1 à 200, 50 par défaut), `offset`. `total` = nombre de résultats pour ces filtres. |
+| `GET /consultations/{org_acronyme}/{ref_consultation}` | Détail d'une consultation. `404` si elle n'existe pas. |
+| `GET /consultations/{org_acronyme}/{ref_consultation}/historique` | Modifications détectées, de la plus ancienne à la plus récente. `[]` si aucune. `404` si la consultation n'existe pas. |
+| `GET /collecte/dernier-run` | Dernier run du collecteur (statut, heures, durée, raison, compteurs et erreurs) et date du dernier run réussi. `dernier_run` vaut `null` si aucun run n'a encore eu lieu. |
+
+Exemples : `/consultations?statut=en_cours&categorie=travaux`,
+`/consultations?date_limite_apres=2026-10-01&date_limite_avant=2026-11-01&limit=20`.
+
+Les dates sont en ISO 8601 avec le décalage de l'heure du Maroc
+(`Africa/Casablanca`). Ce décalage change selon la date : `+01:00` ou `Z`
+(UTC+0). Une date donnée sans heure ni fuseau dans un filtre (`2026-10-01`)
+signifie minuit, heure du Maroc.
+
+### Risque accepté : compte `pmmp_app`
+
+`CHECKLIST.md` recommandait un compte PostgreSQL **en lecture seule** dédié à
+l'API. Le 25/09, le choix a été d'utiliser `pmmp_app`, qui a aussi les droits
+`INSERT` et `UPDATE`, sans créer de nouveau rôle. Garde-fous en place
+(`api/db.py`) :
+
+- chaque session est ouverte en lecture seule (`default_transaction_read_only=on`).
+  Toute écriture échoue (`ReadOnlySqlTransaction`), ce qui est vérifié par un
+  test. **Ce n'est pas une barrière de droits** : une requête
+  `SET default_transaction_read_only = off` la lèverait. Aucune requête de l'API
+  ne le fait et aucune ne construit de SQL à partir des valeurs reçues (tout
+  passe en paramètres) ;
+- une requête est coupée après 5 s et la connexion abandonnée après 5 s ;
+- **3 connexions au plus** en même temps. `pmmp_app` est limité à 10 connexions
+  et le collecteur a besoin des siennes. Au-delà, l'API répond `503` ;
+- sessions repérables dans `pg_stat_activity` (`application_name = 'pmmp_api'`).
+
+Pour supprimer ce risque : créer un rôle avec `SELECT` seulement sur les 3 tables
+et la vue, `CONNECT` sur `pmmp_veille` seulement, puis mettre ses identifiants
+dans une variable propre à l'API.
+
+### Tests
+
+`tests/test_api.py`, lancé avec les autres par `pytest`. Deux tests tournent
+sans base : aucune route d'écriture, et `503` propre si la base est injoignable.
+Les autres ont besoin de la base jetable `pmmp_test` (`PMMP_TEST_DATABASE_URL`,
+voir §7). Ils la **vident**, y insèrent un petit jeu de données connu, puis
+vérifient chaque route, les filtres, la pagination, les `404` et le refus des
+écritures.
