@@ -121,3 +121,24 @@ def test_dce_failure_still_yields_item(spider, fixture_html, caplog, kind):
         (item,) = spider.dce_failed(failure_for(dce_req, exc))
     assert item["dce_statut"] == "echec" and "Échec du téléchargement DCE" in caplog.text
     ValidationPipeline(spider.crawler.stats).process_item(item)
+
+
+# --- Aucune donnée ------------------------------------------------------------------
+
+EMPTY_RESULTS = """<html><body><form method="post" action="index.php">
+<input type="hidden" name="PRADO_PAGESTATE" value="STATE1" />
+<p>Aucun résultat ne correspond à vos critères.</p></form></body></html>"""
+
+
+def test_empty_results_page_is_logged_and_run_is_not_a_success(spider, caplog):
+    """Liste vide (vraie page de résultats, 0 ligne) : warning, aucune requête, et le run
+    n'est pas compté en succès : c'est le symptôme d'une panne silencieuse (HTML changé)."""
+    from pmmp_collector.extensions import run_status
+
+    with caplog.at_level(logging.WARNING):
+        out = list(spider.parse_listing(html(LIST_URL, EMPTY_RESULTS), page=1))
+    assert out == [] and spider.pending_details == []
+    assert "aucune consultation trouvée" in caplog.text
+    stats = spider.crawler.stats.get_stats()
+    assert not stats.get("pmmp/listing_rows")
+    assert run_status("finished", stats) == "echec"
