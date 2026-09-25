@@ -25,7 +25,7 @@ cd C:\Users\abder_r9rl0a3\pmmp_collector
 chcp 65001                                  # accents lisibles dans la console
 $env:PYTHONIOENCODING = "utf-8"
 .\.venv\Scripts\Activate.ps1
-git branch --show-current                   # passation-2026-09-25 (ou main)
+git branch --show-current                   # checklist-2026-09-25 (contient les correctifs du 25/09 après-midi)
 ```
 
 **Remplir la base de test avec les 5 vraies consultations** (demande le mot de
@@ -189,8 +189,9 @@ d'historique :
 | `resultat` | Attributaire |
 
 Dans `collecte_runs`, les 3 runs du test restent à `en_cours`, parce que le test
-ne les clôture pas. Ça illustre bien le point 3 de PASSATION.md : un run
-interrompu reste à `en_cours`.
+ne les clôture pas : c'est exactement la trace d'un run interrompu. Depuis le
+25/09 après-midi, le run suivant lancé plus de 6 h après les passe en `echec`
+(« interrompu »), voir PASSATION.md, point 3.
 
 Montrer aussi le schéma commenté :
 
@@ -229,8 +230,9 @@ git ls-files | Select-String -NotMatch "^fixtures/|^tests/"
 | §8 | Planification et supervision |
 | §10 | Ce qu'il faut ajuster si le portail change (`parsers.py` uniquement) |
 
-Au besoin, montrer `tests/` : une suite automatique de 98 tests. Chaque règle de
-collecte est protégée par un test.
+Au besoin, montrer `tests/` : une suite automatique de 109 tests (102 sans base,
+les 7 autres demandent PostgreSQL). Chaque règle de collecte est protégée par un
+test. Le bilan vérifié du 25/09 est dans `CHECKLIST.md`.
 
 Pas de plan B nécessaire : tout est local.
 
