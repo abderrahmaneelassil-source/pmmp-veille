@@ -29,6 +29,7 @@ case $CODE in
   1) echo "$(date -Is) ÉCHEC (voir ce log et storage/last_run.json)" >>"$LOG_FILE" ;;
   2) echo "$(date -Is) refusé : hors fenêtre horaire" >>"$LOG_FILE" ;;
   3) echo "$(date -Is) partiel : fenêtre horaire terminée avant la fin" >>"$LOG_FILE" ;;
+  4) echo "$(date -Is) refusé : un autre run est déjà en cours" >>"$LOG_FILE" ;;
   *) echo "$(date -Is) code inattendu $CODE (run déjà en cours ?)" >>"$LOG_FILE" ;;
 esac
 

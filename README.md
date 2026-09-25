@@ -294,7 +294,13 @@ le middleware.
 
 Codes de sortie : `0` succès · `1` échec (erreur, circuit breaker, aucune
 consultation extraite) · `2` refusé (hors fenêtre) · `3` partiel (la fenêtre
-s'est fermée pendant le run).
+s'est fermée pendant le run) · `4` refusé (un autre run est déjà en cours).
+
+**Un seul run à la fois** : `crawl` prend un verrou du système sur
+`storage/.crawl.lock`. Un second lancement (à la main pendant la tâche planifiée,
+par exemple) est refusé avec le code `4`, sans aucune requête. Le verrou est
+libéré automatiquement à la fin du processus, même tué ou si le PC redémarre :
+il n'y a jamais de fichier à supprimer à la main.
 
 ### Collecte par lots
 
@@ -424,7 +430,7 @@ commentaire du script) et purge les logs de plus de 60 jours.
 ```powershell
 schtasks /query /tn "PMMP-Veille" /v /fo LIST   # vérifier : Next Run Time, Last Result
 Start-ScheduledTask -TaskName "PMMP-Veille"      # lancer à la main (hors fenêtre : refus, code 2)
-Get-ScheduledTaskInfo -TaskName "PMMP-Veille"    # LastTaskResult = code de sortie (0/1/2/3)
+Get-ScheduledTaskInfo -TaskName "PMMP-Veille"    # LastTaskResult = code de sortie (0/1/2/3/4)
 ```
 
 Réglages : une seule instance à la fois ; lancée dès que possible si le PC
