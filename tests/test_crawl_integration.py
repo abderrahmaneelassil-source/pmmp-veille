@@ -41,8 +41,9 @@ SIZE_SELECT = "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
 
 def listing(page_size: int, deadlines: dict) -> bytes:
     """Page de liste ; la liste déroulante de taille de page reflète le dernier choix posté."""
+    selected = ' selected="selected"'  # hors de l'f-string : antislash interdit avant Python 3.12
     options = "".join(
-        f'<option value="{n}"{" selected=\"selected\"" if n == page_size else ""}>{n}</option>'
+        f'<option value="{n}"{selected if n == page_size else ""}>{n}</option>'
         for n in (10, 20, 50, 100, 500)
     )
     rows = "".join(ROW.format(ref=1000 + i, deadline=deadlines.get(1000 + i, DEADLINE)) for i in range(N_ROWS))

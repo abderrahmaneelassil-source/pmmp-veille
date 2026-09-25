@@ -7,6 +7,18 @@ name = "pmmp-collector"
 version = "1.0.0"
 description = "Collecteur de veille TACHFIR sur le Portail Marocain des Marchés Publics (Scrapy, HTTP pur)"
 requires-python = ">=3.11"
+# Mêmes contraintes que requirements.txt (qui reste la référence pour l'installation, README §3).
+dependencies = [
+    "scrapy>=2.19,<3",
+    "parsel>=1.8",
+    "pydantic>=2.6,<3",
+    "psycopg[binary]>=3.1,<4",
+    "python-dotenv>=1.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
