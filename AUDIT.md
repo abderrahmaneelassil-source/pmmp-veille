@@ -304,3 +304,97 @@ actions de votre côté :
    (section 🔑) ;
 2. lancer le premier run de nuit **après 23:00** avec
    `python -m pmmp_collector crawl --max-pages 2`, puis vérifier `last_run.json`.
+
+---
+
+# Mise à jour du 25/09/2026 — collecte le matin, planifiée automatiquement
+
+Branche `schedule-matin-2026-09-25`, créée à partir de `lots-incrementaux`
+(elle-même issue de `audit-2026-09-24`). **Attention :** contrairement à ce qui
+était supposé, ni l'audit ni les lots ne sont mergés dans `main` (toujours à
+`996121f`). Aucun push, aucun merge.
+
+> ⚠️ **Changement de consigne, pas une correction technique.** La collecte tourne
+> désormais **le matin, de 06:00 à 10:00 (Africa/Casablanca)**. C'est une
+> **décision du stagiaire**, qui **diffère de la consigne d'origine du chef de
+> projet** : « nuit ou heures creuses uniquement » (23:00–06:00), présentée comme
+> non négociable dans le cahier des charges. De 08:00 à 10:00, la fenêtre recouvre
+> le début des heures de bureau. **Revenir à la nuit** ne demande de changer qu'une
+> variable d'environnement, `PMMP_ALLOWED_WINDOW=23:00-06:00`, puis l'heure de la
+> tâche planifiée (README §8).
+
+## Ce qui a changé
+
+| Commit | Changement |
+|---|---|
+| `972cc18` | `PMMP_ALLOWED_WINDOW` : valeur par défaut `06:00-10:00` dans `config.py` et `.env.example` (et dans le `.env` local, non versionné). La variable reste configurable. **Aucune autre règle modifiée** : `CONCURRENT_REQUESTS=1`, `DOWNLOAD_DELAY`, User-Agent, circuit breaker et absence de contournement sont inchangés (`tests/test_rules.py` passe toujours). |
+| `fe1f7fb` | Test de la reprise sur deux runs consécutifs. |
+| `cfd665b` | Commentaires de `run_nightly.ps1` / `.sh` (nom de fichier conservé) : horaire 06:00, rappel de l'écart à la consigne. Messages de log inchangés : ils ne mentionnaient pas la nuit. |
+| `26de29e` | README : encadré en tête sur l'écart à la consigne, §8 planification et changement d'horaire, §6 reprise. |
+
+**Tâche planifiée Windows** (hors Git, créée sur ce PC) : `\PMMP-Veille`,
+quotidienne à **06:00 à partir du 26/09/2026**. Elle lance
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "…\scripts\run_nightly.ps1"`,
+démarre dans le dossier du projet, sous le compte `abder_r9rl0a3`
+(« Interactive only », aucun mot de passe stocké). Une seule instance à la fois,
+démarrage dès que possible si 06:00 a été manqué, autorisée sur batterie, arrêt
+au bout de 5 h. La redirection du log reste faite par `cmd.exe`.
+
+## Reprise de pagination
+
+Le mécanisme existait déjà (branche `lots-incrementaux`), sans numéro de page
+mémorisé : **c'est la base qui sert de point de reprise**. Chaque run repart de
+la page 1 (100 résultats par page) et saute les consultations déjà en base et
+inchangées, qui ne coûtent aucune requête. Il visite au plus `PMMP_MAX_ITEMS`
+fiches nouvelles, modifiées ou en échec, puis s'arrête. Le run suivant continue
+donc là où le précédent s'est arrêté. Un numéro de page mémorisé serait moins
+fiable : les nouvelles publications décalent les pages d'un jour à l'autre.
+
+## Vérifications (faux portail local uniquement, jamais le vrai site)
+
+| Vérification | Résultat |
+|---|---|
+| Garde-fou horaire, fenêtre par défaut | **Accepte** 06:00, 07:30, 09:59 ; **refuse** 10:00, 14:00, 05:59 et la nuit (23:00, 23:30, 02:00). C'est l'inverse d'avant. |
+| `crawl` réel **sans `--force`** quand l'heure est dans la fenêtre | Démarre, run complet `succes` (faux portail) |
+| `crawl` hors fenêtre | Refus, code 2, **zéro requête** |
+| Tâche planifiée | `schtasks /query /tn PMMP-Veille` : `Ready`, *Next Run Time* 26/09/2026 06:00. **Déclenchée à la main à 11:46** via le Planificateur : `LastTaskResult = 2` (refus hors fenêtre, aucune requête), log `storage/logs/run_…log` lisible en UTF-8. Ce log de test a été supprimé ensuite. |
+| Reprise sur runs consécutifs | 6 consultations, lot de 4 : run 1 → fiches 1000 à 1003 ; run 2 → 1004 et 1005 (les 4 premières sautées) ; run 3 → aucune fiche (tout à jour). Test `test_resume_across_two_consecutive_runs` (état de la base simulé en mémoire). |
+| Suite complète | **98 passed, 5 skipped** |
+
+**Non vérifié par moi :** les 5 tests ignorés demandent la base jetable
+`pmmp_test` et le compte `postgres`, dont le mot de passe a (à juste titre) été
+changé depuis l'audit. Parmi eux, `test_incremental_batches_resume_night_after_night`
+fait la reprise de bout en bout avec PostgreSQL : 4 runs réels sur le faux
+portail. À lancer :
+
+```powershell
+$pw = Read-Host "Mot de passe postgres"
+$env:PMMP_TEST_DATABASE_URL = "postgresql://postgres:$([uri]::EscapeDataString($pw))@localhost:5432/pmmp_test"
+pytest          # attendu : 103 passed
+$env:PMMP_TEST_DATABASE_URL = $null
+```
+
+## Prêt à tourner demain matin ?
+
+**Oui : la tâche se lancera d'elle-même demain 26/09 à 06:00**, et c'est son
+premier contact avec le vrai portail dans cette configuration. Conditions :
+
+1. **PC allumé et session Windows ouverte à 06:00** (verrouillée, ça suffit).
+   Éteint, en veille ou session fermée : pas de collecte ce jour-là.
+2. **Garder extraite la branche `schedule-matin-2026-09-25`** (ou la merger) :
+   la tâche exécute le code de la branche extraite. Sur `main`, l'ancien script
+   planterait.
+
+**À régler de préférence avant demain (une ligne dans `.env`) :** avec la fenêtre
+de 4 h, un lot de 2 000 fiches ne tient probablement pas. Il faut ≈ 4 000 requêtes
+(fiches + DCE) à ≥ 3 s chacune, plus la latence, soit plus de 4 h. Les premiers
+runs finiraient alors en **`partiel`** (code 3) à 10:00. Les données collectées
+sont bien enregistrées et la reprise fonctionne, mais **la clôture automatique
+des consultations expirées et `last_success.json` ne sont mis à jour qu'après
+un run `succes`**. La supervision (« aucun succès depuis 26 h ») alerterait
+chaque jour. Recommandation : **`PMMP_MAX_ITEMS=1200`**, soit ≈ 2 400 requêtes,
+environ 2 h 30 à 3 h. Je ne l'ai pas changé : ce n'était pas demandé.
+
+À surveiller après le premier run : `storage/logs/run_20260926_06*.log`,
+`storage/last_run.json` et `Get-ScheduledTaskInfo -TaskName PMMP-Veille`
+(`LastTaskResult` : 0 succès, 3 partiel, 1 échec).
