@@ -258,7 +258,10 @@ cp .env.example .env    # puis éditer .env
 | `PMMP_CB_MAX_CONSECUTIVE` / `PMMP_CB_SLOW_SECONDS` | circuit breaker (N entre 1 et 10) / seuil de lenteur | `3` / `15` |
 | `PMMP_DOWNLOAD_TIMEOUT` | timeout par requête (s) | `30` |
 | `PMMP_MODE` | `prod` ou `test` | `prod` |
-| `PMMP_MAX_PAGES` / `PMMP_MAX_ITEMS` | limites optionnelles (0 = aucune) | `0` |
+| `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `2000` |
+| `PMMP_INCREMENTAL` | ne visiter que les consultations nouvelles, modifiées ou en échec (voir §6) | `true` |
+| `PMMP_PAGE_SIZE` | résultats par page de liste : 10, 20, 50, 100 ou 500 | `100` |
+| `PMMP_MAX_PAGES` | limite optionnelle de pages de liste (0 = aucune) | `0` |
 | `PMMP_FORCE_MAX_PAGES` / `PMMP_FORCE_MAX_ITEMS` | plafonds d'un run `--force` hors fenêtre | `1` / `10` |
 | `PMMP_DOWNLOAD_DCE` | télécharger les DCE | `true` |
 | `PMMP_STORAGE_DIR` / `PMMP_FIXTURES_DIR` | dossiers de stockage | `storage` / `fixtures` |
@@ -283,6 +286,36 @@ le middleware.
 Codes de sortie : `0` succès · `1` échec (erreur, circuit breaker, aucune
 consultation extraite) · `2` refusé (hors fenêtre) · `3` partiel (la fenêtre
 s'est fermée pendant le run).
+
+### Collecte par lots
+
+Le portail liste environ **100 000 consultations**. Avec les règles de collecte
+(une requête à la fois, ≥ 3 s d'écart), une nuit de 7 h permet au plus ≈ 8 400
+requêtes : tout visiter en une nuit est impossible. La collecte est donc
+**incrémentale et découpée en lots** :
+
+1. La liste est affichée à `PMMP_PAGE_SIZE` résultats par page (100 par défaut,
+   soit ≈ 1 000 pages au lieu de 10 000). Le collecteur fait ce choix dans la
+   liste déroulante du portail, comme un utilisateur.
+2. Pour chaque ligne, la base indique si la consultation est **nouvelle**,
+   **modifiée** d'après la liste (date limite, annulation ou report) ou **en
+   échec** au run précédent. Seules celles-là sont visitées (fiche + DCE). Les
+   autres ne coûtent aucune requête : seule `derniere_vue_le` est mise à jour.
+3. Au plus `PMMP_MAX_ITEMS` fiches sont visitées par run (le **lot**). Le run
+   s'arrête alors proprement.
+4. **Reprise** : la nuit suivante repart de la page 1. Tout ce qui est déjà en
+   base est sauté, donc le lot suivant continue là où le précédent s'est arrêté.
+   Aucun fichier d'état : c'est la base qui sert de point de reprise.
+
+Ordre de grandeur, avec 2 000 fiches par nuit : la **première** collecte
+complète prend ≈ 50 nuits (≈ 100 000 consultations). Ensuite, chaque nuit ne
+visite que les nouveautés et les modifications. Pour accélérer la première
+collecte, désactivez temporairement les DCE (`PMMP_DOWNLOAD_DCE=false` : deux
+fois moins de requêtes par consultation) ou augmentez le lot, à condition que le
+run tienne dans la fenêtre : compter ≈ 3 s par page de liste, par fiche et par DCE.
+
+Les compteurs `pmmp/fiches_a_visiter/<raison>` et `pmmp/fiches_a_jour` des
+statistiques du run (`collecte_runs.stats`) indiquent ce qui a été visité et pourquoi.
 
 Ordre de parcours : **toutes les pages de liste d'abord**. Chaque postback PRADO
 renvoie le formulaire reçu avec le `PRADO_PAGESTATE` de la réponse précédente,
