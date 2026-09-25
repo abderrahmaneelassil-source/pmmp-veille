@@ -268,7 +268,7 @@ cp .env.example .env    # puis éditer .env
 | `PMMP_DOWNLOAD_TIMEOUT` | timeout par requête (s) | `30` |
 | `PMMP_STALE_RUN_HOURS` | au-delà (h), un run resté `en_cours` est considéré comme mort (PC éteint, kill) et passé en `echec` au démarrage du run suivant | `6` |
 | `PMMP_MODE` | `prod` ou `test` | `prod` |
-| `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `2000` |
+| `PMMP_MAX_ITEMS` | taille du **lot** : fiches détail visitées au plus par run (0 = aucune limite) | `1200` |
 | `PMMP_INCREMENTAL` | ne visiter que les consultations nouvelles, modifiées ou en échec (voir §6) | `true` |
 | `PMMP_PAGE_SIZE` | résultats par page de liste : 10, 20, 50, 100 ou 500 | `100` |
 | `PMMP_MAX_PAGES` | limite optionnelle de pages de liste (0 = aucune) | `0` |
@@ -325,8 +325,8 @@ Le portail liste environ **100 000 consultations**. Avec les règles de collecte
    sûr qu'un numéro de page mémorisé, car les nouvelles publications décalent
    les pages d'un jour à l'autre.
 
-Ordre de grandeur, avec 2 000 fiches par run : la **première** collecte
-complète prend ≈ 50 jours (≈ 100 000 consultations). Ensuite, chaque run ne
+Ordre de grandeur, avec 1 200 fiches par run : la **première** collecte
+complète prend ≈ 80 jours (≈ 100 000 consultations). Ensuite, chaque run ne
 visite que les nouveautés et les modifications. Pour accélérer la première
 collecte, désactivez temporairement les DCE (`PMMP_DOWNLOAD_DCE=false` : deux
 fois moins de requêtes par consultation) ou augmentez le lot, à condition que le

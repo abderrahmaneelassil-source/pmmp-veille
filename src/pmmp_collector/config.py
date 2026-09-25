@@ -179,7 +179,7 @@ def load_config() -> Config:
         download_timeout=_env_int("PMMP_DOWNLOAD_TIMEOUT", 30),
         mode=mode,
         max_pages=max(0, _env_int("PMMP_MAX_PAGES", 0)),
-        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 2000)),
+        max_items=max(0, _env_int("PMMP_MAX_ITEMS", 1200)),
         page_size=page_size,
         incremental=_env_bool("PMMP_INCREMENTAL", True),
         force_max_pages=max(1, _env_int("PMMP_FORCE_MAX_PAGES", 1)),
