@@ -87,6 +87,7 @@ def test_detail_not_found_or_timeout_keeps_listing_data(spider, fixture_html, ca
     with caplog.at_level(logging.ERROR):
         (item,) = spider.detail_failed(failure_for(request, exc))
     assert "Échec de la fiche détail" in caplog.text
+    assert "réponse HTTP 404" in caplog.text if isinstance(exc, HttpError) else "délai dépassé : le portail" in caplog.text
     assert item["dce_statut"] == "echec_fiche_detail"
     assert spider.crawler.stats.get_value("pmmp/detail_errors") == 1
     ValidationPipeline(spider.crawler.stats).process_item(item)

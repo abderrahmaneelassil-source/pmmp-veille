@@ -58,6 +58,15 @@ def _cancelled_by_us(failure) -> bool:
     return bool(failure.check(IgnoreRequest)) and not failure.check(HttpError)
 
 
+def _describe(failure) -> str:
+    """Cause lisible dans les logs : « HTTP 404 » plutôt que « HttpError('Ignoring non-200 response') »."""
+    if failure.check(HttpError):
+        return f"réponse HTTP {failure.value.response.status}"
+    if "Timeout" in type(failure.value).__name__:
+        return "délai dépassé : le portail n'a pas répondu à temps (PMMP_DOWNLOAD_TIMEOUT)"
+    return f"{type(failure.value).__name__} : {failure.value}"
+
+
 class PmmpSpider(scrapy.Spider):
     name = "pmmp"
 
@@ -318,7 +327,7 @@ class PmmpSpider(scrapy.Spider):
         if _cancelled_by_us(failure):
             return
         self.crawler.stats.inc_value("pmmp/listing_errors")
-        logger.error("Échec de la page de liste %s : %r", failure.request.url, failure.value)
+        logger.error("Échec de la page de liste %s : %s", failure.request.url, _describe(failure))
         yield from self._release_details()
 
     # --- Fiche détail ------------------------------------------------------------
@@ -356,7 +365,7 @@ class PmmpSpider(scrapy.Spider):
             return
         self.crawler.stats.inc_value("pmmp/detail_errors")
         listing = failure.request.cb_kwargs.get("listing", {})
-        logger.error("Échec de la fiche détail %s : %r", failure.request.url, failure.value)
+        logger.error("Échec de la fiche détail %s : %s", failure.request.url, _describe(failure))
         # On garde au moins les données de la liste (validées ensuite comme les autres).
         yield {**listing, "dce_paths": [], "dce_statut": "echec_fiche_detail"}
 
@@ -415,7 +424,7 @@ class PmmpSpider(scrapy.Spider):
         kw = failure.request.cb_kwargs
         item = kw["item"]
         self.crawler.stats.inc_value("pmmp/dce_errors")
-        logger.error("Échec du téléchargement DCE %s : %r", failure.request.url, failure.value)
+        logger.error("Échec du téléchargement DCE %s : %s", failure.request.url, _describe(failure))
         if item.get("dce_statut") != "telecharge":
             item["dce_statut"] = "echec"
         yield from self._continue_dce(item, kw["remaining"], kw["index"])
