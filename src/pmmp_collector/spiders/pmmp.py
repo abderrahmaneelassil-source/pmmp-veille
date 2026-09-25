@@ -207,7 +207,7 @@ class PmmpSpider(scrapy.Spider):
     # --- Collecte incrémentale par lots -------------------------------------------
     # Seules les consultations nouvelles, modifiées d'après la liste ou en échec au run
     # précédent sont visitées, dans la limite de max_items (le lot). Le lot suivant
-    # reprend naturellement la nuit d'après : ce qui est déjà en base est sauté.
+    # reprend naturellement au run suivant : ce qui est déjà en base est sauté.
 
     def _page_size_request(self, response, pager: dict):
         """Postback « Nombre de résultats par page », comme un choix dans la liste déroulante."""

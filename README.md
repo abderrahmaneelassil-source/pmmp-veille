@@ -10,6 +10,15 @@ Chaîne de traitement : `liste paginée → fiche détail → DCE → validation
 
 ---
 
+> ⚠️ **Horaire de collecte modifié le 25/09/2026 : le matin (06:00–10:00),
+> et non plus la nuit.** C'est une **décision du stagiaire**, qui **diffère de la
+> consigne d'origine du chef de projet** (« nuit ou heures creuses uniquement »,
+> 23:00–06:00, présentée comme non négociable). Ce n'est pas une correction
+> technique. Toutes les autres règles ci-dessous sont inchangées. **Revenir à la
+> nuit** ne demande de changer qu'une variable d'environnement,
+> `PMMP_ALLOWED_WINDOW=23:00-06:00`, puis l'heure de la tâche planifiée
+> (voir §8).
+
 ## 1. Pourquoi ces règles de collecte existent (à lire avant de toucher au code)
 
 Le PMMP est un service public dont dépendent toutes les entreprises
@@ -22,7 +31,7 @@ protégée par un test (`tests/test_rules.py`, `tests/test_config.py`,
 |---|---|---|
 | Une seule requête à la fois | `settings.py` : `CONCURRENT_REQUESTS = 1` | Ne jamais charger le serveur de plusieurs requêtes parallèles. |
 | Pause entre requêtes (≥ 1 s, 3 s par défaut) + AutoThrottle | `settings.py`, plancher dans `config.py` | AutoThrottle ralentit automatiquement si le site ralentit. Il ne descend jamais sous le délai. |
-| Heures creuses uniquement (23:00–06:00 Casablanca par défaut) | `__main__.py` (refus au démarrage) + `TimeWindowMiddleware` (refus à chaque requête, arrêt si la fenêtre se ferme) | La collecte ne doit pas concurrencer les utilisateurs humains en journée. |
+| Fenêtre horaire (`PMMP_ALLOWED_WINDOW`). **Actuellement 06:00–10:00 Casablanca** (choix du stagiaire). Consigne d'origine : 23:00–06:00 | `__main__.py` (refus au démarrage) + `TimeWindowMiddleware` (refus à chaque requête, arrêt si la fenêtre se ferme) | Consigne d'origine : la collecte ne doit pas concurrencer les utilisateurs humains en journée. La fenêtre du matin s'en écarte en partie (voir l'encadré ci-dessus). |
 | `--force` = test manuel **plafonné** | `spiders/pmmp.py` : 1 page / 10 consultations par défaut hors fenêtre | `--force` ne sert pas à lancer un crawl complet en journée. |
 | User-Agent identifiable TACHFIR + contact | `config.py` (refuse un UA Scrapy/navigateur) + `DeclaredUserAgentMiddleware` | L'administrateur du portail doit savoir qui nous sommes et comment nous joindre. |
 | Aucun contournement | Pas de proxy (middleware proxy désactivé), pas de captcha résolu, aucun en-tête usurpé. Test `test_no_circumvention_code` | Si le site nous limite, on s'arrête et on en parle avec lui. On ne force jamais le passage. |
@@ -254,7 +263,7 @@ cp .env.example .env    # puis éditer .env
 | `PMMP_DATABASE_URL` | connexion PostgreSQL (obligatoire en prod) | — |
 | `PMMP_USER_AGENT` | UA déclaré (doit contenir TACHFIR) | `TACHFIR-VeilleMarchesPublics/1.0 (+contact: sales@tachfir.com)` |
 | `PMMP_DOWNLOAD_DELAY` | pause entre requêtes (s), minimum 1 | `3` |
-| `PMMP_ALLOWED_WINDOW` / `PMMP_TIMEZONE` | fenêtre autorisée | `23:00-06:00` / `Africa/Casablanca` |
+| `PMMP_ALLOWED_WINDOW` / `PMMP_TIMEZONE` | fenêtre autorisée (voir l'encadré en tête et §8) | `06:00-10:00` / `Africa/Casablanca` |
 | `PMMP_CB_MAX_CONSECUTIVE` / `PMMP_CB_SLOW_SECONDS` | circuit breaker (N entre 1 et 10) / seuil de lenteur | `3` / `15` |
 | `PMMP_DOWNLOAD_TIMEOUT` | timeout par requête (s) | `30` |
 | `PMMP_MODE` | `prod` ou `test` | `prod` |
@@ -290,8 +299,8 @@ s'est fermée pendant le run).
 ### Collecte par lots
 
 Le portail liste environ **100 000 consultations**. Avec les règles de collecte
-(une requête à la fois, ≥ 3 s d'écart), une nuit de 7 h permet au plus ≈ 8 400
-requêtes : tout visiter en une nuit est impossible. La collecte est donc
+(une requête à la fois, ≥ 3 s d'écart), la fenêtre du matin (4 h) permet au plus
+≈ 4 800 requêtes : tout visiter en un run est impossible. La collecte est donc
 **incrémentale et découpée en lots** :
 
 1. La liste est affichée à `PMMP_PAGE_SIZE` résultats par page (100 par défaut,
@@ -303,12 +312,14 @@ requêtes : tout visiter en une nuit est impossible. La collecte est donc
    autres ne coûtent aucune requête : seule `derniere_vue_le` est mise à jour.
 3. Au plus `PMMP_MAX_ITEMS` fiches sont visitées par run (le **lot**). Le run
    s'arrête alors proprement.
-4. **Reprise** : la nuit suivante repart de la page 1. Tout ce qui est déjà en
+4. **Reprise** : le run suivant repart de la page 1. Tout ce qui est déjà en
    base est sauté, donc le lot suivant continue là où le précédent s'est arrêté.
-   Aucun fichier d'état : c'est la base qui sert de point de reprise.
+   Aucun fichier d'état : c'est la base qui sert de point de reprise. C'est plus
+   sûr qu'un numéro de page mémorisé, car les nouvelles publications décalent
+   les pages d'un jour à l'autre.
 
-Ordre de grandeur, avec 2 000 fiches par nuit : la **première** collecte
-complète prend ≈ 50 nuits (≈ 100 000 consultations). Ensuite, chaque nuit ne
+Ordre de grandeur, avec 2 000 fiches par run : la **première** collecte
+complète prend ≈ 50 jours (≈ 100 000 consultations). Ensuite, chaque run ne
 visite que les nouveautés et les modifications. Pour accélérer la première
 collecte, désactivez temporairement les DCE (`PMMP_DOWNLOAD_DCE=false` : deux
 fois moins de requêtes par consultation) ou augmentez le lot, à condition que le
@@ -375,8 +386,7 @@ qui vérifie les règles de collecte sur les requêtes réellement envoyées
   PMMP_TEST_DATABASE_URL=postgresql://postgres:...@localhost:5432/pmmp_test pytest
   ```
 
-**Capturer les fixtures réelles** (à faire une fois, de préférence dans la
-fenêtre de nuit) :
+**Capturer les fixtures réelles** (à faire une fois, dans la fenêtre horaire) :
 
 ```bash
 # Linux
@@ -399,18 +409,55 @@ git add fixtures/live   # ces pages servent à la passation
 
 Hors fenêtre horaire, la commande est refusée : ajoutez `--force` (run plafonné).
 
-## 8. Planifier l'exécution nocturne
+## 8. Planifier l'exécution quotidienne
+
+Horaire actuel : **tous les jours à 06:00**, début de la fenêtre
+`PMMP_ALLOWED_WINDOW=06:00-10:00` (décision du stagiaire, différente de la
+consigne d'origine : voir l'encadré en tête). Les scripts s'appellent toujours
+`run_nightly.*` (nom historique, conservé pour ne rien casser).
+
+**Windows (installé sur le PC de développement)** : tâche `PMMP-Veille` du
+Planificateur de tâches. Elle lance `scripts/run_nightly.ps1`, qui écrit un log
+dans `storage/logs/run_<date>.log` (redirection faite par `cmd.exe`, voir le
+commentaire du script) et purge les logs de plus de 60 jours.
+
+```powershell
+schtasks /query /tn "PMMP-Veille" /v /fo LIST   # vérifier : Next Run Time, Last Result
+Start-ScheduledTask -TaskName "PMMP-Veille"      # lancer à la main (hors fenêtre : refus, code 2)
+Get-ScheduledTaskInfo -TaskName "PMMP-Veille"    # LastTaskResult = code de sortie (0/1/2/3)
+```
+
+Réglages : une seule instance à la fois ; lancée dès que possible si le PC
+était éteint à 06:00 (hors fenêtre, le collecteur refuse seul) ; autorisée sur
+batterie ; arrêtée après 5 h ; exécutée sous le compte Windows de l'utilisateur,
+**session ouverte** (« Interactive only » : aucun mot de passe stocké). PC éteint,
+en veille ou session fermée à 06:00 : pas de collecte ce jour-là. La commande
+complète de création est en tête de `scripts/run_nightly.ps1`.
+
+> La tâche exécute le code **de la branche Git actuellement extraite** dans le
+> dossier du projet. Gardez extraite une branche qui contient l'audit et ce
+> changement (ou mergez-les dans `main`) : l'ancien `run_nightly.ps1` de `main`
+> plante dès la première ligne de log.
+
+**Changer l'horaire** (par exemple revenir à la nuit) :
+
+1. Dans `.env` : `PMMP_ALLOWED_WINDOW=23:00-06:00`.
+2. Heure de la tâche au début de la nouvelle fenêtre :
+
+   ```powershell
+   Set-ScheduledTask -TaskName "PMMP-Veille" -Trigger (New-ScheduledTaskTrigger -Daily -At 23:00)
+   ```
+
+Si seule la variable change, la tâche de 06:00 sera refusée tous les jours
+(code 2) : c'est sans danger, mais il n'y aura plus de collecte.
 
 **Linux (cron)** : `scripts/run_nightly.sh` active le venv, empêche deux runs
 simultanés (`flock`), écrit un log dans `storage/logs/` et purge les logs de
 plus de 60 jours.
 
 ```cron
-30 23 * * *  /opt/pmmp_collector/scripts/run_nightly.sh
+0 6 * * *  /opt/pmmp_collector/scripts/run_nightly.sh
 ```
-
-**Windows** : `scripts/run_nightly.ps1`. La commande d'enregistrement de la
-tâche est en tête du fichier (tâche quotidienne à 23:30, `MultipleInstances IgnoreNew`).
 
 **Supervision** (détecter une panne silencieuse) : alerter si le dernier succès a
 plus de 26 h.
@@ -449,8 +496,7 @@ changement du HTML du portail.
 Une capture réelle limitée a été faite le 23/09/2026 (formulaire de recherche,
 1 page de liste, 5 fiches détail, 5 pages DCE intermédiaires) : ces pages sont
 dans `fixtures/live/` et rejouées par `tests/test_live_fixtures.py` et
-`tests/test_db.py`. Le crawl complet (toutes les pages, en fenêtre de nuit)
-n'a pas encore été fait. Points à surveiller :
+`tests/test_db.py`. Le crawl complet (toutes les pages) n'a pas encore été fait. Points à surveiller :
 
 1. **URL** : corrigée après la première capture. `/pmmp/` renvoie la page
    d'accueil ; la liste est à la racine du domaine (lien « Consultations en cours »).
