@@ -572,24 +572,134 @@ de `src/pmmp_collector/` et ne fait que **lire** la base. Le collecteur reste se
 à écrire. Toutes les routes sont en `GET`. Un `POST`, `PUT` ou `DELETE` reçoit
 `405`.
 
-### Lancer
+### Comment ça marche
 
-Depuis la racine du projet, avec le `.venv` activé (dépendances : §3,
-`requirements.txt`) :
-
-```powershell
-python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+Navigateur (ou Angular)  ──HTTP GET──▶  uvicorn (serveur web, port 8000)
+                                              │
+                                              ▼
+                                        FastAPI : api/main.py (routes)
+                                              │  api/db.py : session en lecture seule
+                                              ▼
+                                        PostgreSQL : base pmmp_veille
+                                              ▲
+Collecteur Scrapy (tâche planifiée) ──écrit──┘
 ```
 
-- API : http://127.0.0.1:8000 (port **8000**). Cette adresse redirige vers `/docs`.
-- **http://127.0.0.1:8000/docs** : interface Swagger générée automatiquement par
-  FastAPI. Chaque route y est testable dans le navigateur (« Try it out » puis
-  « Execute »). Elle permet de montrer les données sans l'interface Angular.
-- Arrêt : `Ctrl+C`.
+- **uvicorn** est le serveur web. Il écoute sur `127.0.0.1:8000` et transmet
+  chaque requête à FastAPI.
+- **FastAPI** (`api/main.py`) choisit la route, vérifie les paramètres (un
+  `statut` inconnu reçoit `422`) et renvoie du JSON. Il génère aussi tout seul la
+  page `/docs`.
+- À chaque requête, `api/db.py` ouvre une connexion **en lecture seule** avec
+  `PMMP_DATABASE_URL` du `.env`, exécute la requête SQL, puis ferme la connexion.
+- Le **collecteur** est le seul à écrire dans la base. L'API affiche ce qu'il a
+  collecté, sans rien modifier. Les deux tournent indépendamment : l'API peut
+  rester ouverte pendant un run.
 
-La connexion est celle du collecteur : `PMMP_DATABASE_URL` du `.env`, compte
-`pmmp_app`. La commande doit être lancée depuis la racine du projet pour que le
-`.env` soit trouvé.
+### Avant la première utilisation (une seule fois)
+
+1. Le projet est installé (§3) et la base existe (§4). Le `.env` contient
+   `PMMP_DATABASE_URL`, le même que pour le collecteur.
+2. Installer les dépendances de l'API (FastAPI, uvicorn), qui sont dans
+   `requirements.txt` :
+
+   ```powershell
+   cd pmmp_collector              # dossier du projet
+   .venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+
+### Ouvrir l'API, étape par étape (Windows, PowerShell)
+
+1. **Vérifier que PostgreSQL tourne** (voir aussi §4.1). Le résultat doit être
+   `Running` :
+
+   ```powershell
+   Get-Service postgresql*
+   ```
+
+   S'il est arrêté : `Start-Service postgresql-x64-18`, dans un PowerShell
+   ouvert en administrateur.
+
+2. **Aller dans le dossier du projet** et activer l'environnement Python :
+
+   ```powershell
+   cd pmmp_collector              # dossier du projet
+   .venv\Scripts\Activate.ps1
+   ```
+
+3. **Lancer l'API** :
+
+   ```powershell
+   python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   Sans activer l'environnement, cette commande seule fait la même chose :
+
+   ```powershell
+   .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   L'API est prête quand le terminal affiche :
+
+   ```
+   INFO:     Application startup complete.
+   INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+   ```
+
+   **Laisser ce terminal ouvert** : fermer la fenêtre arrête l'API.
+
+4. **Ouvrir dans le navigateur** : **<http://127.0.0.1:8000/docs>**.
+   L'adresse <http://127.0.0.1:8000> affichée par uvicorn y redirige aussi.
+
+5. **Arrêter l'API** : dans le terminal, `Ctrl+C`.
+
+Après une modification du code, il faut arrêter (`Ctrl+C`) puis relancer l'API
+pour qu'elle soit prise en compte.
+
+### Utiliser la page /docs (Swagger)
+
+Chaque route y est testable dans le navigateur. Cette page sert aussi de
+démonstration si l'interface Angular n'est pas prête.
+
+1. Cliquer sur une route, par exemple `GET /consultations`.
+2. Cliquer sur **Try it out**.
+3. Remplir les paramètres voulus, par exemple `statut` = `en_cours` et `limit` =
+   `5`, ou les laisser vides.
+4. Cliquer sur **Execute**. La réponse JSON s'affiche sous **Response body**,
+   avec son code (`200`, `404`…). L'adresse exacte appelée s'affiche sous
+   **Request URL** ; elle peut être copiée dans le navigateur.
+
+Parcours conseillé pour une démonstration :
+
+| Étape | Route | Ce qu'elle montre |
+|---|---|---|
+| 1 | `GET /health` | L'API tourne, connectée à `pmmp_veille` en lecture seule. |
+| 2 | `GET /collecte/dernier-run` | La collecte a tourné : heure, statut, nombre de consultations. |
+| 3 | `GET /consultations` avec `statut` = `en_cours` | Les appels d'offres en cours, échéance la plus proche d'abord. |
+| 4 | `GET /consultations/{org_acronyme}/{ref_consultation}` | Le détail d'une consultation. Copier `org_acronyme` et `ref_consultation` depuis l'étape 3. |
+| 5 | La même route avec une référence inventée | Réponse `404` propre. |
+
+Chaque route s'ouvre aussi directement dans la barre d'adresse du navigateur,
+par exemple :
+
+- <http://127.0.0.1:8000/health>
+- <http://127.0.0.1:8000/consultations?statut=en_cours&limit=5>
+- <http://127.0.0.1:8000/consultations?categorie=travaux>
+- <http://127.0.0.1:8000/collecte/dernier-run>
+
+### En cas de problème
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `{"detail":"Not Found"}` (404) sur <http://127.0.0.1:8000> | Version de l'API antérieure à la redirection, ou API lancée avant la mise à jour du code | Ouvrir <http://127.0.0.1:8000/docs>, ou arrêter puis relancer l'API. |
+| `ModuleNotFoundError: No module named 'api'` | Commande lancée hors du dossier du projet | Aller dans le dossier du projet (`cd pmmp_collector`), puis relancer. |
+| `No module named uvicorn` ou `No module named fastapi` | Dépendances non installées, ou `.venv` non activé | `pip install -r requirements.txt` avec le `.venv` activé, ou utiliser `.venv\Scripts\python -m uvicorn …`. |
+| `[Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000)` | Une API tourne déjà sur le port 8000 (souvent dans un autre terminal) | Utiliser celle qui tourne, ou l'arrêter (`Ctrl+C` dans son terminal). Sinon, lancer sur un autre port avec `--port 8001` puis ouvrir <http://127.0.0.1:8001/docs>. |
+| `/health` répond `{"api":"ok","base":"indisponible"}` (503) | PostgreSQL arrêté, `.env` introuvable (commande lancée hors du projet) ou mot de passe incorrect | Vérifier `Get-Service postgresql*` (démarrage : §4.1) et `PMMP_DATABASE_URL` dans `.env`. La cause exacte s'affiche dans le terminal de l'API. |
+| La page ne s'ouvre pas du tout (« connexion refusée ») | L'API n'est pas lancée, ou son terminal a été fermé | Refaire l'étape 3. |
+| `/consultations` renvoie `"total": 0` | La base est vide : aucun run n'a encore collecté de données | Normal avant le premier run ; voir `/collecte/dernier-run`. |
 
 ### Routes
 
