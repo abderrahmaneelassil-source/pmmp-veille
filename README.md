@@ -581,7 +581,7 @@ Depuis la racine du projet, avec le `.venv` activé (dépendances : §3,
 python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-- API : http://127.0.0.1:8000 (port **8000**).
+- API : http://127.0.0.1:8000 (port **8000**). Cette adresse redirige vers `/docs`.
 - **http://127.0.0.1:8000/docs** : interface Swagger générée automatiquement par
   FastAPI. Chaque route y est testable dans le navigateur (« Try it out » puis
   « Execute »). Elle permet de montrer les données sans l'interface Angular.

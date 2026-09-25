@@ -22,6 +22,7 @@ avec_base = pytest.mark.skipif(not URL, reason="PMMP_TEST_DATABASE_URL non défi
 def test_aucune_route_d_ecriture():
     routes = {r.path: r.methods for r in app.routes if isinstance(r, APIRoute)}
     assert set(routes) == {
+        "/",  # redirection vers /docs
         "/health",
         "/consultations",
         "/consultations/{org_acronyme}/{ref_consultation}",
@@ -29,6 +30,11 @@ def test_aucune_route_d_ecriture():
         "/collecte/dernier-run",
     }
     assert all(methods == {"GET"} for methods in routes.values())
+
+
+def test_racine_redirige_vers_docs():
+    r = TestClient(app).get("/", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/docs"
 
 
 def test_base_injoignable_503(monkeypatch):

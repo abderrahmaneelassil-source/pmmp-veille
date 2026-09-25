@@ -15,7 +15,7 @@ from typing import Annotated
 
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from api import db
 from api.schemas import (
@@ -56,6 +56,12 @@ def _contient(valeur: str) -> str:
 
 def _introuvable(org: str, ref: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Consultation introuvable : {org}/{ref}")
+
+
+@app.get("/", include_in_schema=False)
+def accueil() -> RedirectResponse:
+    """Le lien affiché par uvicorn (http://127.0.0.1:8000) mène à la documentation."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=Sante, responses={503: {"model": Sante}})
