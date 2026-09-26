@@ -785,49 +785,165 @@ n'a pas été modifié.
   Angular CLI n'a pas besoin d'être installé globalement : `npm` utilise celui du
   projet (`frontend/node_modules`).
 
-### Lancer (deux terminaux)
+- **Première utilisation d'Angular CLI** : au premier `npm start`, Angular pose
+  une question (« Would you like to share pseudonymous usage data… ») pour envoyer
+  des statistiques d'utilisation anonymes à l'équipe Angular (Google). Répondre
+  `N` si vous ne le souhaitez pas. La réponse est enregistrée dans
+  `frontend/angular.json` (clé `cli.analytics`) : cette modification est propre à
+  votre poste, **ne pas la committer**.
 
-1. **Terminal 1 : l'API** (§12), depuis la racine du projet :
+### Ouvrir l'interface, étape par étape (Windows, PowerShell)
+
+L'interface a besoin de **deux programmes en même temps**, chacun dans son propre
+terminal : l'API (port 8000) et le serveur de l'interface (port 4200).
+
+> ⚠️ Les deux commandes ne se lancent **pas depuis le même dossier** :
+> l'API depuis la **racine** du projet (`pmmp_collector`), l'interface depuis le
+> sous-dossier **`frontend`**. `npm start` lancé depuis la racine échoue
+> (« Could not read package.json », voir « En cas de problème »).
+
+1. **Vérifier si l'API tourne déjà.** Ouvrir <http://127.0.0.1:8000/health> dans
+   le navigateur :
+   - la page affiche `{"api":"ok","base":"ok",…}` : l'API tourne déjà, **passer à
+     l'étape 3** (ne pas la relancer) ;
+   - la page ne s'ouvre pas : passer à l'étape 2.
+
+2. **Terminal 1 : lancer l'API**, depuis la racine du projet :
 
    ```powershell
    cd pmmp_collector
    .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
    ```
 
-2. **Terminal 2 : l'interface**, depuis `frontend/` :
+   Prête quand le terminal affiche
+   `Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)`.
+   Laisser ce terminal ouvert.
+
+3. **Terminal 2 : lancer l'interface**, depuis le sous-dossier `frontend` :
 
    ```powershell
    cd pmmp_collector\frontend
    npm start
    ```
 
-   `npm start` lance `ng serve` avec le proxy. L'interface est prête quand le
-   terminal affiche `Local: http://localhost:4200/`.
+   `npm start` lance `ng serve` avec le proxy vers l'API. Prête quand le terminal
+   affiche :
 
-3. Ouvrir **<http://localhost:4200>** dans le navigateur.
+   ```
+   ➜  Local:   http://localhost:4200/
+   ```
 
-Arrêt : `Ctrl+C` dans chaque terminal. Si l'API n'est pas lancée, l'interface
-s'ouvre quand même et affiche sur chaque page « L'API ne répond pas », avec la
-commande à lancer.
+   Laisser ce terminal ouvert : le fermer arrête l'interface.
 
-### Pages
+4. **Ouvrir <http://localhost:4200>** dans le navigateur.
+
+5. **Arrêter** : `Ctrl+C` dans chaque terminal (l'API peut rester lancée si
+   d'autres l'utilisent).
+
+Après une modification du code de l'interface, `ng serve` recharge la page tout
+seul : inutile de le relancer. Après une modification de `api/`, il faut en
+revanche relancer l'API (§12).
+
+### Utiliser l'interface
+
+Le menu à gauche (en haut sur tablette) mène aux quatre pages. Le bandeau noir
+rappelle en permanence que l'outil est à usage interne, en lecture seule et sans
+authentification. Les entrées grisées « Alertes », « Suivi commercial » et
+« Analyse IA » ne sont pas encore construites : elles mènent à la feuille de route.
 
 | Page | Contenu |
 |---|---|
 | Tableau de bord | Dernière collecte (statut, horaires, durée, compteurs, erreurs), santé de l'API et de la base, les 5 prochaines échéances. |
-| Consultations | Recherche par **acheteur** ou par **catégorie** (texte contenu, sur toute la base), filtres avancés (statut, date limite du… au…, bornes incluses, résultats par page), pagination. La recherche et les filtres sont dans l'adresse de la page : un lien partagé rouvre la même recherche. |
-| Fiche consultation | Tous les champs, liens DCE et « Ouvrir sur le portail » (nouvel onglet), historique des modifications en frise. |
+| Consultations | Recherche par acheteur ou par catégorie, filtres avancés, pagination. |
+| Fiche consultation | Tous les champs, liens DCE et « Ouvrir sur le portail », historique des modifications. |
 | Suivi de la collecte | Détail du dernier run, santé, légende des statuts. |
 | Feuille de route | Ce qui est disponible et ce qui est prévu (Phases 3 et 4). |
 
-Limites volontaires, alignées sur ce que l'API permet réellement :
+**Tableau de bord.** Page d'accueil. La carte « Dernière collecte » indique si le
+dernier run a réussi (badge vert « Succès »), quand il a tourné, combien de
+consultations il a enregistrées et les erreurs éventuelles ; « Légende des
+statuts » explique chaque statut. Une alerte rouge apparaît si aucun run n'a réussi
+depuis plus de 24 h. La carte « Santé » indique si l'API et la base répondent.
+En bas, les 5 consultations en cours dont la date limite est la plus proche.
 
-- **Pas de recherche dans l'objet** sur toute la base : l'API ne filtre que
-  l'acheteur et la catégorie. Le bouton « Recherche avancée » est désactivé
-  (Phase 3). Le champ « Filtrer l'objet » ne porte **que sur la page de résultats
-  affichée**, et son libellé le dit.
-- Alertes, suivi commercial et analyse IA apparaissent en grisé dans le menu et
-  mènent à la feuille de route : ils ne sont pas construits.
+**Consultations : rechercher.**
+
+1. Choisir le champ dans « Rechercher par » : **Acheteur** ou **Catégorie**.
+2. Taper un mot dans « Texte recherché » (ex. `commune`, `ports`, `travaux`). La
+   recherche part toute seule dès que vous arrêtez de taper (0,3 s), ou avec
+   Entrée. Elle porte sur **toute la base**, les majuscules sont ignorées et le
+   texte peut être une partie du nom (« tiznit » trouve « COMMUNE DE TIZNIT »).
+3. **Filtres avancés** (cliquer pour ouvrir) : statut, date limite **du … au …**
+   (les deux jours sont inclus), nombre de résultats par page. « Réinitialiser »
+   efface tout.
+4. Les résultats sont triés par date limite, la plus proche d'abord. « Précédent »
+   / « Suivant » changent de page.
+5. **Filtrer l'objet** : ce champ ne filtre que les résultats **affichés sur la
+   page en cours**, pas toute la base (l'API ne permet pas encore de chercher dans
+   l'objet : c'est la « Recherche avancée », désactivée, prévue en Phase 3).
+
+La recherche est enregistrée dans l'adresse de la page (ex.
+`/consultations?q=ports&statut=en_cours`) : copier l'adresse permet de la partager
+ou de la retrouver, et le bouton « Précédent » du navigateur revient à la recherche
+d'avant.
+
+**Fiche consultation.** Cliquer sur l'objet d'une consultation. La fiche affiche
+toutes les informations collectées, le statut du dossier de consultation (DCE) et
+ses liens, et le bouton « Ouvrir sur le portail » (ouvre la page d'origine sur
+marchespublics.gov.ma dans un nouvel onglet). « Historique des modifications »
+liste, de la plus ancienne à la plus récente, chaque changement détecté entre deux
+collectes (report de date, rectificatif, annulation…) avec l'ancienne valeur
+barrée et la nouvelle. « Aucune modification détectée » est normal pour une
+consultation qui n'a pas changé. « ← Retour à la liste » revient à la recherche
+en cours.
+
+**Suivi de la collecte.** Détail du dernier run et tableau « Légende des statuts de
+run », qui fait le lien avec le « Dernier résultat » de la tâche planifiée Windows
+(voir « Codes de statut des runs » ci-dessous).
+
+**En cas d'erreur**, chaque bloc concerné affiche un encadré rouge qui dit ce qui ne
+va pas (API arrêtée, base indisponible…) et un bouton « Réessayer ». Le reste de la
+page reste utilisable.
+
+### Comment ça marche
+
+```
+Navigateur ──▶ ng serve (port 4200) ──/api/…──▶ API FastAPI (port 8000) ──▶ PostgreSQL
+                  │                                   ▲
+                  └── sert l'interface (HTML, JS)     │ écrit chaque matin
+                                             Collecteur (tâche planifiée)
+```
+
+1. Le navigateur charge l'interface depuis `ng serve` (port 4200).
+2. Pour chaque donnée, l'interface appelle une adresse `/api/…` sur ce même port.
+   `ng serve` transmet l'appel à l'API sur `http://127.0.0.1:8000`, en retirant
+   `/api` (fichier `frontend/proxy.conf.json`). Exemple :
+   `/api/consultations?acheteur=ports` → `http://127.0.0.1:8000/consultations?acheteur=ports`.
+3. L'API lit PostgreSQL en lecture seule et renvoie du JSON ; l'interface
+   l'affiche.
+4. Si l'appel échoue, un intercepteur unique
+   (`frontend/src/app/core/api-erreur.ts`) traduit l'erreur en message français :
+   API arrêtée (le proxy répond `502`), base indisponible (`503`), élément
+   introuvable (`404`)…
+
+L'interface ne fait **que lire** : aucun bouton ne modifie des données. Elle
+n'affiche que ce que le collecteur a déjà enregistré : les nouvelles consultations
+apparaissent après le run suivant du collecteur.
+
+### En cas de problème
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `npm error enoent Could not read package.json: … pmmp_collector\package.json` | `npm start` lancé depuis la racine du projet au lieu de `frontend` | `cd frontend` (ou `cd pmmp_collector\frontend`), puis `npm start`. |
+| API : `[Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000)` | L'API tourne **déjà** (autre terminal, lancement précédent) | Rien à faire : utiliser celle qui tourne (vérifier avec <http://127.0.0.1:8000/health>). |
+| Interface : `Port 4200 is already in use` | L'interface tourne **déjà** dans un autre terminal | Ouvrir <http://localhost:4200>. Sinon, arrêter l'autre (`Ctrl+C`) ou lancer sur un autre port : `npm start -- --port 4300`. |
+| `'ng' n'est pas reconnu…` ou `Cannot find module '@angular/…'` | Dépendances non installées | Dans `frontend` : `npm install`, puis `npm start`. |
+| Message sur la version de Node au lancement | Node trop ancien | Installer une version indiquée dans « Prérequis ». |
+| Encadré rouge « L'API ne répond pas » sur les pages | API arrêtée, ou lancée sur un autre port que 8000 | Lancer l'API (étape 2, commande rappelée dans l'encadré), puis « Réessayer ». |
+| « Base de données : indisponible », ou « la base de données est indisponible » | L'API tourne mais PostgreSQL ne répond pas | Vérifier le service (`Get-Service postgresql*`, §4.1) et `PMMP_DATABASE_URL` dans `.env`. |
+| « Aucune consultation ne correspond à ces critères » | Filtres trop restrictifs, ou base vide | « Réinitialiser la recherche ». Base vide : voir le tableau de bord (aucun run ?). |
+| « Aucun run enregistré » | Le collecteur n'a encore jamais tourné sur cette base | Normal avant le premier run (§6, §8). |
+| La page <http://localhost:4200> ne s'ouvre pas du tout | Interface non lancée, ou terminal 2 fermé | Refaire l'étape 3. |
 
 ### Heures affichées
 
