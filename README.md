@@ -993,3 +993,59 @@ frontend/
 `npm start` ne sert qu'au développement et à la démonstration, sur ce poste.
 Publier l'interface sur un serveur demanderait un serveur web qui transmette
 `/api/` à l'API, **et** d'abord l'authentification prévue au §12.
+
+## 14. Sauvegarde et réparation des données
+
+### Sauvegarde quotidienne
+
+`scripts/backup_db.ps1` sauvegarde `pmmp_veille` avec `pg_dump` (format `-Fc`) :
+
+- identifiants : `PMMP_DATABASE_URL` du `.env` (compte `pmmp_app`). Le mot de passe
+  n'est passé qu'au processus `pg_dump` : il n'est ni dans la tâche planifiée ni
+  sur le disque ;
+- fichiers : `storage/backups/pmmp_veille_<date>.dump` (ignorés par Git), les
+  **14 plus récents** sont gardés ;
+- journal : `storage/logs/backup_<date>.log` ; code de sortie `0` (fait) ou `1`
+  (échec, cause dans le journal).
+
+`pg_dump` ne fait que **lire** la base : il peut tourner pendant un run.
+
+**Tâche planifiée** `PMMP-Sauvegarde`, chaque jour à **11:30** (après la fenêtre de
+collecte et la limite de 5 h de `PMMP-Veille`). Enregistrée sur le PC de
+développement le 26/09 ; commande d'enregistrement en tête du script.
+
+```powershell
+# Sauvegarde immédiate, à la main (depuis la racine du projet)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup_db.ps1
+# État de la tâche
+Get-ScheduledTaskInfo -TaskName "PMMP-Sauvegarde"   # LastTaskResult 0 = sauvegarde faite
+# Restauration, dans une base VIDE créée au préalable (superutilisateur)
+& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -h localhost -U postgres -d <base_vide> --no-owner storage\backups\<fichier>.dump
+# Supprimer la tâche si besoin
+Unregister-ScheduledTask -TaskName "PMMP-Sauvegarde" -Confirm:$false
+```
+
+Vérifié le 26/09 : sauvegarde lancée par le Planificateur (résultat `0`), puis
+restauration dans une base jetable, identique à la base réelle (23 consultations,
+0 ligne d'historique, 3 runs).
+
+> ⚠️ Les sauvegardes restent **sur le même disque** que la base. Pour survivre à
+> une panne du PC, les copier ailleurs (partage réseau, stockage d'équipe).
+
+### Réparer des données après une correction de l'extracteur
+
+Quand `parsers.py` est corrigé, les consultations déjà en base ne sont relues par
+la collecte incrémentale que si elles changent sur le portail.
+`scripts/reparer_doublons.py` relit leurs **pages archivées** (`storage/raw_html/`)
+avec l'extracteur actuel : **aucune requête au portail**. Il corrige aujourd'hui
+`objet` et `lieu_execution`, sans ligne d'historique (c'est la correction d'une
+erreur de lecture, pas une modification publiée).
+
+```powershell
+.venv\Scripts\python scripts\reparer_doublons.py              # simulation : liste les changements
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup_db.ps1   # sauvegarder d'abord
+.venv\Scripts\python scripts\reparer_doublons.py --appliquer  # écrit en base (une transaction)
+```
+
+Appliqué le 26/09 : 26 valeurs corrigées (lieux « SALE SALE » et objets
+« début ... texte complet », défaut corrigé dans `parsers.py` le même jour).

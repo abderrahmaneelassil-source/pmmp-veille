@@ -1,8 +1,35 @@
 # Checklist de vérification du collecteur PMMP — 25/09/2026 (après-midi)
 
 Branche `checklist-2026-09-25`, créée depuis `passation-2026-09-25` @ `ceae906`.
-**Aucun push, aucun merge.** Tous les crawls de cette vérification ont visé le
-**faux portail local** (127.0.0.1). Le vrai site n'a **jamais** été contacté.
+**Aucun push, aucun merge.** Les crawls de la vérification de l'après-midi ont visé
+le **faux portail local** (127.0.0.1). **Correction du 26/09** : ce n'est pas vrai
+pour toute la journée. Deux tests manuels `--force` (16:16 et 16:29) ont tourné sur
+le **vrai portail** (1 page, 10 consultations chacun), voir « Vérification directe
+de la base ».
+
+> **État au 26/09/2026 (après-midi) — ce qui a changé depuis cette checklist**
+> (détail : `REVUE_2026-09-26.md`). Le reste du document décrit l'état du 25/09.
+>
+> - **Premier run automatique** le 26/09 à 06:00 : déclenché à l'heure, mais **en
+>   échec** (circuit breaker : 3 coupures de connexion du portail après ≈ 800
+>   fiches, 14 pages de liste, 1 300 consultations listées). Aucune fiche lue
+>   n'avait été enregistrée : chaque consultation attendait son DCE, programmé
+>   après toutes les fiches. **Corrigé** (`2f1685a`, test
+>   `test_interrupted_run_keeps_details_already_read`).
+> - **Textes doublés** : lieu d'exécution de toutes les fiches (« SALE SALE ») et
+>   objet lu sur la liste. Extracteur **corrigé** (`abaf3eb`), base **réparée**
+>   (26 valeurs, `scripts/reparer_doublons.py`).
+> - **Sauvegarde** : **faite** (§13 ci-dessous n'est plus à jour) — tâche
+>   `PMMP-Sauvegarde` quotidienne à 11:30, restauration testée (README §14).
+> - **Chiffres** : base `pmmp_veille` = 23 consultations, 0 ligne d'historique,
+>   3 runs ; tests = **124 Python** (107 + 17 ignorés sans base) et **44 interface**
+>   (et non 109).
+> - **Ajoutés depuis** : API FastAPI en lecture seule (`api/`, README §12, avec
+>   `pmmp_app` en session lecture seule : risque accepté, contrairement à la
+>   conclusion ci-dessous qui recommandait un compte dédié) et interface Angular
+>   (`frontend/`, README §13).
+> - **Toujours ouverts** : aucune alerte en cas d'échec (§10), week-ends (§7), DCE
+>   derrière un formulaire non téléchargés, sauvegardes à copier hors du PC.
 
 Méthode : la checklist transmise a été appliquée point par point à ce projet.
 Pour chaque point : statut réel, preuve ou correction, et pour les manques
@@ -516,7 +543,7 @@ rôle. Droits : `INSERT, SELECT, UPDATE` sur les 3 tables, `SELECT` sur la vue.
 
 ## Validation finale
 
-- ✅ Fonctionnel : vérifié sur faux portail, pages réelles capturées et 109 tests. **Jamais exécuté sur le vrai portail au-delà de la page 1 de la capture du 23/09.**
+- ✅ Fonctionnel : vérifié sur faux portail, pages réelles capturées et 109 tests. ~~Jamais exécuté sur le vrai portail au-delà de la page 1 de la capture du 23/09.~~ **Mise à jour 26/09** : 2 tests `--force` sur le vrai portail le 25/09, puis le run automatique du 26/09 (14 pages, en échec, voir l'encadré en tête).
 - ✅ Cas d'erreur testés (manquent : gros volume, perte de la base en cours de run)
 - ✅ Pas de mot de passe dans le code (ni dans l'historique Git)
 - ✅ Configuration externalisée

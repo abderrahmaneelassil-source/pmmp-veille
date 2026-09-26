@@ -1,9 +1,11 @@
 # Passation — moteur de veille PMMP (pmmp_veille)
 
-Note de fin de stage, 25/09/2026. Elle s'adresse à l'équipe qui reprend le projet
-sans l'avoir suivi. Pour le détail technique : `README.md` (installation,
-utilisation), `AUDIT.md` (rapport d'audit du 24/09 et mise à jour du 25/09) et
-`CHECKLIST.md` (vérification complète du 25/09 après-midi).
+Note de fin de stage, 25/09/2026, **mise à jour le 26/09/2026 après-midi** (API,
+interface, premier run automatique, corrections). Elle s'adresse à l'équipe qui
+reprend le projet sans l'avoir suivi. Pour le détail technique : `README.md`
+(installation, utilisation, API §12, interface §13, sauvegarde §14), `AUDIT.md`
+(rapport d'audit du 24/09 et mise à jour du 25/09), `CHECKLIST.md` (vérification
+complète du 25/09 après-midi) et `REVUE_2026-09-26.md` (revue complète du 26/09).
 
 **Personne responsable : Abderrahmane Elassil (stagiaire), jusqu'au 25/09/2026.
 Après cette date, il n'y a plus de responsable : l'équipe doit en désigner un**
@@ -24,10 +26,25 @@ report de date, rectificatif, annulation, résultat.
 
 | | État |
 |---|---|
-| Collecteur, base de données, tests automatiques | Terminés, audités (24/09) et revérifiés (25/09, `CHECKLIST.md`). Tous les tests passent, y compris ceux qui demandent PostgreSQL (lancés sur une base jetable). |
-| Lancement automatique chaque matin à 06:00 | Programmé sur le PC de développement. **Premier lancement réel : 26/09/2026 à 06:00**, donc après la fin du stage. |
-| Collecte réelle sur le portail | **Pas encore faite à grande échelle.** Seule une petite capture (1 page, 5 consultations) a été faite le 23/09. Elle sert de jeu de test. |
-| Base `pmmp_veille` | **Vide à ce jour** (0 consultation). C'est normal : elle a été vidée après l'audit. Elle se remplira au premier run. |
+| Collecteur, base de données, tests automatiques | Terminés, audités (24/09), revérifiés (25/09, `CHECKLIST.md`) et revus (26/09, `REVUE_2026-09-26.md`). 124 tests Python passent (dont 17 qui demandent PostgreSQL, lancés sur une base jetable) et 44 tests de l'interface. |
+| Lancement automatique chaque matin à 06:00 | Programmé sur le PC de développement. **Premier lancement réel le 26/09/2026 à 06:00 : il s'est bien déclenché, mais a échoué** (voir encadré ci-dessous). Prochain : chaque jour à 06:00. |
+| Collecte réelle sur le portail | 26/09 : 14 pages de liste (1 300 consultations) et ≈ 800 fiches lues en 42 min, puis arrêt de sécurité (3 coupures de connexion du portail). Deux petits tests manuels (`--force`) le 25/09. |
+| Base `pmmp_veille` | **23 consultations** (20 des tests du 25/09, 3 du run du 26/09), 3 runs. Sauvegardée chaque jour à 11:30 (tâche `PMMP-Sauvegarde`, README §14). |
+| API de consultation (lecture seule) | Faite : `api/`, FastAPI, 5 routes, README §12. Usage **local uniquement, sans authentification**. |
+| Interface web | Faite : `frontend/`, Angular, README §13 (tableau de bord, recherche, fiches, suivi de la collecte, feuille de route). Usage **local uniquement**. |
+
+> ⚠️ **Run du 26/09 : ce qui s'est passé et ce qui a été corrigé.** Le portail a
+> coupé 3 connexions de suite après ≈ 800 fiches : le circuit breaker a arrêté le
+> run, comme prévu. Mais **aucune des ≈ 800 fiches lues n'avait été enregistrée**,
+> car chaque consultation attendait son DCE, programmé après toutes les fiches.
+> **Corrigé le 26/09** (commit `2f1685a`) : chaque consultation est désormais
+> enregistrée avant de passer à la suivante ; un arrêt ne perd plus que la
+> consultation en cours. Les 800 fiches seront relues au run suivant. Autre
+> correction du même jour : le lieu d'exécution (et l'objet lu sur la liste)
+> étaient enregistrés en double (« SALE SALE ») ; extracteur corrigé et base
+> réparée (`scripts/reparer_doublons.py`). **À surveiller les prochains jours** :
+> si la coupure du portail revient vers le même volume, réduire `PMMP_MAX_ITEMS`
+> (ex. 600) dans `.env`.
 
 > ⚠️ **À régler en priorité : le lancement automatique dépend du compte Windows
 > du stagiaire.** La tâche `PMMP-Veille` tourne sous le compte `abder_r9rl0a3`
@@ -116,7 +133,7 @@ gravité de chaque point.
 | 6 | **`reservation_pme` toujours vide** | L'information « marché réservé aux PME » n'apparaît sur aucune des pages réelles examinées : la colonne est vide partout. La date de publication ne vient que de la liste, pas de la fiche. Un filtre « réservé PME » ne marchera pas tant qu'on n'a pas trouvé où le portail affiche cette information. | Moyenne pour les futures fonctions de recherche |
 | 7 | **Script de lancement Linux jamais exécuté** | Le script prévu pour un serveur Linux (`scripts/run_nightly.sh`) a été relu, mais **jamais lancé pour de vrai** : le développement s'est fait sous Windows. Il faudra le tester lors de l'installation sur serveur et vérifier que l'outil `flock` y est présent. | Moyenne le jour de la migration |
 | 8 | **Accès retiré sur les autres bases du serveur** | En sécurisant le compte de l'application, l'accès « tout le monde » a été retiré sur **toutes les autres bases** du même serveur PostgreSQL. Sur le PC de développement, ça n'a aucun effet. Sur un serveur **partagé** avec d'autres projets, ça pourrait bloquer d'autres applications : **prévenir l'administrateur avant** d'appliquer `db/roles.sql` (README §4.4). | Élevée sur un serveur partagé |
-| 9 | **Premier vrai run : 26/09 à 06:00** | Aucune collecte complète n'a encore tourné sur le vrai portail. Le premier lancement automatique est le vrai test. À regarder le 26/09 au matin : `storage/logs/`, `storage/last_run.json`, et `SELECT * FROM collecte_runs` (commandes dans `DEMO.md`). | Élevée : à vérifier dès le 26/09 |
+| 9 | **Premiers vrais runs** | Le 26/09 à 06:00, la tâche s'est bien déclenchée, mais le portail a coupé 3 connexions après ≈ 800 fiches (arrêt de sécurité) et, à cause d'un défaut corrigé le jour même (encadré en tête), rien n'a été enregistré. **Aucun run automatique n'a donc encore réussi.** Chaque matin, regarder le tableau de bord de l'interface, ou `storage/logs/`, `storage/last_run.json` et `collecte_runs`. Si les coupures reviennent vers ≈ 800 requêtes, baisser `PMMP_MAX_ITEMS`. | Élevée : à vérifier chaque matin la première semaine |
 
 ---
 
@@ -131,7 +148,7 @@ collecteur actuel.
 | **Recherche plein texte + filtres + alertes email** | La base contient déjà les champs utiles : objet (arabe et français), acheteur, catégorie, date limite, statut. Attention au filtre « réservé PME », voir le point 6. |
 | **Recherche sémantique** | Pas commencée. |
 | **Analyse par IA des DCE** | Les DCE sont stockés comme fichiers sur disque (`storage/dce/`), leur chemin est en base. Voir aussi la décision n° 5 : les DCE derrière un formulaire ne sont pas téléchargés. |
-| **Interface complète (Spring Boot + Angular)** | Pas commencée. Elle lira la base PostgreSQL existante (schéma documenté dans `db/schema.sql`) avec le compte `pmmp_app` ou un compte en lecture seule à créer. |
+| **Interface complète (Spring Boot + Angular)** | **Première version faite le 25-26/09** : API en **FastAPI** (et non Spring Boot, écart à la feuille de route) dans `api/`, interface **Angular** dans `frontend/`, toutes deux en lecture seule (README §12-13). L'API utilise `pmmp_app` avec des sessions en lecture seule (risque accepté, README §12). Reste : authentification et HTTPS avant tout accès hors du poste, déploiement sur un serveur, recherche plein texte (Phase 3). |
 | **Test des outils concurrents** | Pas commencé. |
 
 Petites tâches de consolidation, issues de ce stage :
@@ -150,8 +167,9 @@ Manques identifiés le 25/09 (détail et raisons dans `CHECKLIST.md`) :
 
 - **Aucune alerte en cas d'échec** (email, Teams…). Aujourd'hui, il faut aller
   lire les logs ou `collecte_runs`. C'est le manque le plus important.
-- **Aucune sauvegarde automatique de la base.** La commande manuelle a été testée
-  (voir « Sauvegarde de la base » ci-dessous). Il reste à la planifier.
+- ~~Aucune sauvegarde automatique de la base~~ : **faite le 26/09** (tâche
+  `PMMP-Sauvegarde`, chaque jour à 11:30, voir « Sauvegarde de la base »). Reste :
+  copier les sauvegardes **ailleurs que sur ce PC**.
 - **Un DCE rectifié sur le portail n'est jamais retéléchargé** : dès qu'un DCE
   est sur le disque, l'outil le considère `deja_present`.
 - **Le HTML brut s'accumule sans purge** dans `storage/raw_html/` : chaque run
@@ -238,21 +256,24 @@ n'ont pas modifié le schéma de la base.
 
 ### Sauvegarde de la base
 
-**Il n'existe aujourd'hui aucune sauvegarde automatique de `pmmp_veille`.** C'est
-un vrai manque : avec un disque perdu ou une mauvaise manipulation, tout
-l'historique des modifications disparaît. La commande ci-dessous a été **testée le
-25/09** : sauvegarde avec `pmmp_app`, puis restauration réussie dans une base de test.
+**Automatique depuis le 26/09** : la tâche planifiée `PMMP-Sauvegarde` lance
+`scripts/backup_db.ps1` chaque jour à 11:30 (après la collecte du matin). Le script
+fait un `pg_dump` avec le compte du `.env`, range le fichier dans
+`storage/backups/pmmp_veille_<date>.dump`, garde les 14 derniers et écrit un
+journal dans `storage/logs/backup_<date>.log`. **Testé le 26/09** : sauvegarde
+lancée par le Planificateur (résultat 0), puis restauration dans une base jetable
+identique à la base réelle. Détails et commandes : README §14.
 
 ```powershell
-# Sauvegarde (demande le mot de passe de pmmp_app, voir .env)
-& "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe" -h localhost -U pmmp_app -d pmmp_veille -Fc --no-owner -f "pmmp_veille_$(Get-Date -Format yyyyMMdd).dump"
+# Sauvegarde immédiate, à la main (depuis la racine du projet)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup_db.ps1
 # Restauration dans une base VIDE créée au préalable (superutilisateur)
-& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -h localhost -U postgres -d <base_vide> --no-owner <fichier>.dump
+& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -h localhost -U postgres -d <base_vide> --no-owner storage\backups\<fichier>.dump
 ```
 
-À faire : planifier cette sauvegarde (par exemple chaque jour après 10:00) et
-copier les fichiers **ailleurs que sur ce PC**. Les DCE (`storage/dce/`) sont de
-simples fichiers : à inclure dans la sauvegarde du disque.
+**Reste à faire : copier les sauvegardes ailleurs que sur ce PC** (un disque perdu
+emporte la base et ses sauvegardes). Les DCE (`storage/dce/`) sont de simples
+fichiers : à inclure dans la sauvegarde du disque.
 
 ### Erreurs fréquentes
 
@@ -261,7 +282,7 @@ simples fichiers : à inclure dans la sauvegarde du disque.
 | `REFUS : il est … hors de la fenêtre autorisée` (code 2) | Lancement en dehors de 06:00–10:00 | Normal. Pour un test : `--force`. |
 | `REFUS : un autre run du collecteur est déjà en cours` (code 4) | Un run tourne déjà (tâche planifiée ou autre fenêtre) | Attendre sa fin. |
 | `ÉCHEC avant démarrage … connexion PostgreSQL impossible` (code 1) | PostgreSQL arrêté, mot de passe changé ou `.env` absent | Démarrer le service PostgreSQL, vérifier `PMMP_DATABASE_URL`. |
-| `CIRCUIT BREAKER DÉCLENCHÉ` (code 1) | Le portail a répondu en erreur ou trop lentement 3 fois de suite | Ne rien forcer : ça repartira le lendemain. Si ça dure, regarder le portail à la main. |
+| `CIRCUIT BREAKER DÉCLENCHÉ` (code 1) | Le portail a répondu en erreur, trop lentement ou a coupé la connexion 3 fois de suite (26/09 : `ConnectionLost` après ≈ 800 requêtes) | Ne rien forcer : ça repartira le lendemain, et les consultations déjà lues sont enregistrées (corrigé le 26/09). Si ça revient chaque jour vers le même volume, baisser `PMMP_MAX_ITEMS` dans `.env`. |
 | Statut `partiel` (code 3) | La fenêtre s'est fermée à 10:00 avant la fin du lot | Normal au début. Si ça arrive tous les jours, baisser `PMMP_MAX_ITEMS`. |
 | Statut `echec`, raison `aucune_consultation_extraite` | Le portail a changé son HTML | Voir README §10 : ajuster `parsers.py`. |
 | `ATTENTION : le run n°… ne s'est jamais terminé` | Un run précédent a été tué (PC éteint…) | Pour information : la ligne est passée en `echec`. |
@@ -283,5 +304,9 @@ Tableau complet des erreurs de base de données : README §4.
 | Rapport technique d'audit | `AUDIT.md` |
 | Déroulé de la démo du 25/09 | `DEMO.md` |
 | Vérification complète du 25/09 (checklist) | `CHECKLIST.md` |
+| Revue complète du 26/09 (état réel, défauts trouvés) | `REVUE_2026-09-26.md` |
+| API de consultation / interface web | `api/`, README §12 · `frontend/`, README §13 |
+| Sauvegarde de la base | `scripts/backup_db.ps1`, README §14 |
+| Réparer des données après une correction de l'extracteur | `scripts/reparer_doublons.py`, README §14 |
 | Code source | `src/pmmp_collector/`. Dossier du projet sur le PC de développement : `C:\Users\abder_r9rl0a3\pmmp_collector` |
 | Dépendances | `requirements.txt` (repris dans `pyproject.toml`). Python 3.11 ou plus (version utilisée : 3.14.5) |

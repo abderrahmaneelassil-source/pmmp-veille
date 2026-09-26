@@ -1,4 +1,58 @@
-# Démo de passation — 25/09/2026 après-midi (1 h)
+# Démo au chef de projet — à jour du 26/09/2026 (≈ 25 min)
+
+> Le déroulé du 25/09 (base vide, sans API ni interface) est conservé plus bas,
+> section « Archive ». Celui-ci s'appuie sur l'état réel du 26/09 : 23
+> consultations en base, premier run automatique (en échec) et corrections du jour.
+
+## A. Préparation — 10 min avant, sans public
+
+Deux terminaux PowerShell, laissés ouverts (README §12 et §13) :
+
+```powershell
+# Terminal 1 : l'API (sauf si http://127.0.0.1:8000/health répond déjà)
+cd pmmp_collector
+.venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+# Terminal 2 : l'interface
+cd pmmp_collector\frontend
+npm start
+```
+
+Ouvrir <http://localhost:4200> et <http://127.0.0.1:8000/docs> dans deux onglets.
+
+## B. Déroulé
+
+1. **Tableau de bord (5 min).** Montrer la dernière collecte : le run automatique
+   du 26/09 à 06:00 s'est **déclenché seul** (correction `WakeToRun` du 25/09), a
+   lu 14 pages de liste (1 300 consultations) et ≈ 800 fiches en 42 min, puis
+   s'est arrêté sur un **arrêt de sécurité** (3 coupures de connexion du portail :
+   le circuit breaker a fait son travail). **Dire franchement** : un défaut empêchait
+   d'enregistrer les fiches lues avant la fin du run ; il a été trouvé à la revue
+   et **corrigé le jour même** (test automatique à l'appui). Le run de demain
+   enregistrera les fiches au fil de l'eau. Ouvrir « Détail technique de
+   l'arrêt » pour montrer que rien n'est caché.
+2. **Consultations (7 min).** Rechercher par acheteur (`ports`), puis par catégorie
+   (`travaux`) ; ouvrir les filtres avancés (statut, date limite du… au…) ; ouvrir
+   une fiche : lieu d'exécution, date limite, lien DCE, « Ouvrir sur le portail »
+   (nouvel onglet). Préciser les limites : pas encore de recherche dans l'objet
+   (Phase 3, bouton « Recherche avancée » désactivé).
+3. **Suivi de la collecte (3 min).** Légende des statuts et codes de sortie ;
+   alerte si aucun run réussi depuis 24 h.
+4. **API (3 min).** <http://127.0.0.1:8000/docs> : « Try it out » sur
+   `/consultations`. Lecture seule, **usage local, sans authentification**.
+5. **Exploitation (4 min).** Tâches planifiées `PMMP-Veille` (06:00) et
+   `PMMP-Sauvegarde` (11:30) ; sauvegarde restaurable (README §14) ; tests :
+   `pytest -q` (≈ 2 min) et `npm test` dans `frontend`.
+6. **Feuille de route (3 min).** Page « Feuille de route » de l'interface : ce qui
+   est fait, ce qui est prévu (Phases 3 et 4), et les écarts à trancher
+   (`REVUE_2026-09-26.md`, § 3.10) : FastAPI au lieu de Spring Boot, pas de Docker,
+   pas d'alerte en cas d'échec, DCE derrière un formulaire non téléchargés.
+
+**Ne jamais lancer** `python -m pmmp_collector crawl --force` pendant la démo :
+il contacterait le vrai portail.
+
+---
+
+# Archive — Démo de passation du 25/09/2026 après-midi (1 h)
 
 Toutes les commandes sont en **PowerShell**, à taper **depuis la racine du
 projet** (`C:\Users\abder_r9rl0a3\pmmp_collector`).
