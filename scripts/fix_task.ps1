@@ -28,5 +28,5 @@ try {
     $out.Add("ECHEC : $_")
 }
 
-$out -join "`r`n" | Out-File -FilePath "C:\Users\abder_r9rl0a3\pmmp_collector\scripts\fix_task_output.txt" -Encoding utf8
+$out -join "`r`n" | Out-File -FilePath (Join-Path $PSScriptRoot "fix_task_output.txt") -Encoding utf8
 Write-Output "Termine."

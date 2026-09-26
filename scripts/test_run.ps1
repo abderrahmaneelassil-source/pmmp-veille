@@ -26,7 +26,7 @@ $out.Add("LastTaskResult apres : $($after.LastTaskResult)")
 
 $out.Add("")
 $out.Add("--- storage\logs (fichiers run_*.log) ---")
-$logDir = "C:\Users\abder_r9rl0a3\pmmp_collector\storage\logs"
+$logDir = Join-Path (Split-Path -Parent $PSScriptRoot) "storage\logs"
 $files = Get-ChildItem $logDir -Filter "run_*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
 if ($files) {
     $out.Add(($files | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize | Out-String))
@@ -51,6 +51,6 @@ try {
     $out.Add("Impossible de lire le journal : $_")
 }
 
-$outPath = "C:\Users\abder_r9rl0a3\pmmp_collector\scripts\test_run_output.txt"
+$outPath = Join-Path $PSScriptRoot "test_run_output.txt"
 $out -join "`r`n" | Out-File -FilePath $outPath -Encoding utf8
 Write-Output "Termine."
