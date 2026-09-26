@@ -749,3 +749,303 @@ Les autres ont besoin de la base jetable `pmmp_test` (`PMMP_TEST_DATABASE_URL`,
 voir §7). Ils la **vident**, y insèrent un petit jeu de données connu, puis
 vérifient chaque route, les filtres, la pagination, les `404` et le refus des
 écritures.
+
+## 13. Interface web (Angular)
+
+Le dossier `frontend/` contient l'interface web qui affiche les données de l'API
+(§12) : tableau de bord, recherche dans les consultations, fiche détail avec
+historique, suivi de la collecte et feuille de route. Comme l'API, elle est **en
+lecture seule** et **sans authentification** : même règle, usage sur ce poste
+uniquement (voir l'avertissement du §12).
+
+Elle ne lit jamais la base directement. Elle interroge l'API, qui doit donc tourner
+en même temps.
+
+```
+Navigateur ──▶ ng serve (port 4200) ──/api/…──▶ API FastAPI (port 8000) ──▶ PostgreSQL
+```
+
+En développement, le serveur Angular (`ng serve`) renvoie chaque appel `/api/…` vers
+`http://127.0.0.1:8000/…` (fichier `frontend/proxy.conf.json`). Le navigateur ne
+parle qu'au port 4200 : aucun réglage CORS n'est nécessaire côté API, et `api/`
+n'a pas été modifié.
+
+### Prérequis (une seule fois)
+
+- **Node.js 22.22.3 ou plus (branche 22), 24.15.0 ou plus (branche 24), ou 26 et
+  au-delà** : versions exigées par Angular 22. Testé avec Node 24.15.0 et
+  npm 11.12.1. Vérifier avec `node -v`.
+- Installer les dépendances de l'interface :
+
+  ```powershell
+  cd pmmp_collector\frontend
+  npm install
+  ```
+
+  Angular CLI n'a pas besoin d'être installé globalement : `npm` utilise celui du
+  projet (`frontend/node_modules`).
+
+- **Première utilisation d'Angular CLI** : au premier `npm start`, Angular pose
+  une question (« Would you like to share pseudonymous usage data… ») pour envoyer
+  des statistiques d'utilisation anonymes à l'équipe Angular (Google). Répondre
+  `N` si vous ne le souhaitez pas. La réponse est enregistrée dans
+  `frontend/angular.json` (clé `cli.analytics`) : cette modification est propre à
+  votre poste, **ne pas la committer**.
+
+### Ouvrir l'interface, étape par étape (Windows, PowerShell)
+
+L'interface a besoin de **deux programmes en même temps**, chacun dans son propre
+terminal : l'API (port 8000) et le serveur de l'interface (port 4200).
+
+> ⚠️ Les deux commandes ne se lancent **pas depuis le même dossier** :
+> l'API depuis la **racine** du projet (`pmmp_collector`), l'interface depuis le
+> sous-dossier **`frontend`**. `npm start` lancé depuis la racine échoue
+> (« Could not read package.json », voir « En cas de problème »).
+
+1. **Vérifier si l'API tourne déjà.** Ouvrir <http://127.0.0.1:8000/health> dans
+   le navigateur :
+   - la page affiche `{"api":"ok","base":"ok",…}` : l'API tourne déjà, **passer à
+     l'étape 3** (ne pas la relancer) ;
+   - la page ne s'ouvre pas : passer à l'étape 2.
+
+2. **Terminal 1 : lancer l'API**, depuis la racine du projet :
+
+   ```powershell
+   cd pmmp_collector
+   .venv\Scripts\python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   Prête quand le terminal affiche
+   `Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)`.
+   Laisser ce terminal ouvert.
+
+3. **Terminal 2 : lancer l'interface**, depuis le sous-dossier `frontend` :
+
+   ```powershell
+   cd pmmp_collector\frontend
+   npm start
+   ```
+
+   `npm start` lance `ng serve` avec le proxy vers l'API. Prête quand le terminal
+   affiche :
+
+   ```
+   ➜  Local:   http://localhost:4200/
+   ```
+
+   Laisser ce terminal ouvert : le fermer arrête l'interface.
+
+4. **Ouvrir <http://localhost:4200>** dans le navigateur.
+
+5. **Arrêter** : `Ctrl+C` dans chaque terminal (l'API peut rester lancée si
+   d'autres l'utilisent).
+
+Après une modification du code de l'interface, `ng serve` recharge la page tout
+seul : inutile de le relancer. Après une modification de `api/`, il faut en
+revanche relancer l'API (§12).
+
+### Utiliser l'interface
+
+Le menu à gauche (en haut sur tablette) mène aux quatre pages. Le bandeau noir
+rappelle en permanence que l'outil est à usage interne, en lecture seule et sans
+authentification. Les entrées grisées « Alertes », « Suivi commercial » et
+« Analyse IA » ne sont pas encore construites : elles mènent à la feuille de route.
+
+| Page | Contenu |
+|---|---|
+| Tableau de bord | Dernière collecte (statut, horaires, durée, compteurs, erreurs), santé de l'API et de la base, les 5 prochaines échéances. |
+| Consultations | Recherche par acheteur ou par catégorie, filtres avancés, pagination. |
+| Fiche consultation | Tous les champs, liens DCE et « Ouvrir sur le portail », historique des modifications. |
+| Suivi de la collecte | Détail du dernier run, santé, légende des statuts. |
+| Feuille de route | Ce qui est disponible et ce qui est prévu (Phases 3 et 4). |
+
+**Tableau de bord.** Page d'accueil. La carte « Dernière collecte » indique si le
+dernier run a réussi (badge vert « Succès »), quand il a tourné, combien de
+consultations il a enregistrées et les erreurs éventuelles ; « Légende des
+statuts » explique chaque statut. Une alerte rouge apparaît si aucun run n'a réussi
+depuis plus de 24 h. La carte « Santé » indique si l'API et la base répondent.
+En bas, les 5 consultations en cours dont la date limite est la plus proche.
+
+**Consultations : rechercher.**
+
+1. Choisir le champ dans « Rechercher par » : **Acheteur** ou **Catégorie**.
+2. Taper un mot dans « Texte recherché » (ex. `commune`, `ports`, `travaux`). La
+   recherche part toute seule dès que vous arrêtez de taper (0,3 s), ou avec
+   Entrée. Elle porte sur **toute la base**, les majuscules sont ignorées et le
+   texte peut être une partie du nom (« tiznit » trouve « COMMUNE DE TIZNIT »).
+3. **Filtres avancés** (cliquer pour ouvrir) : statut, date limite **du … au …**
+   (les deux jours sont inclus), nombre de résultats par page. « Réinitialiser »
+   efface tout.
+4. Les résultats sont triés par date limite, la plus proche d'abord. « Précédent »
+   / « Suivant » changent de page.
+5. **Filtrer l'objet** : ce champ ne filtre que les résultats **affichés sur la
+   page en cours**, pas toute la base (l'API ne permet pas encore de chercher dans
+   l'objet : c'est la « Recherche avancée », désactivée, prévue en Phase 3).
+
+La recherche est enregistrée dans l'adresse de la page (ex.
+`/consultations?q=ports&statut=en_cours`) : copier l'adresse permet de la partager
+ou de la retrouver, et le bouton « Précédent » du navigateur revient à la recherche
+d'avant.
+
+**Fiche consultation.** Cliquer sur l'objet d'une consultation. La fiche affiche
+toutes les informations collectées, le statut du dossier de consultation (DCE) et
+ses liens, et le bouton « Ouvrir sur le portail » (ouvre la page d'origine sur
+marchespublics.gov.ma dans un nouvel onglet). « Historique des modifications »
+liste, de la plus ancienne à la plus récente, chaque changement détecté entre deux
+collectes (report de date, rectificatif, annulation…) avec l'ancienne valeur
+barrée et la nouvelle. « Aucune modification détectée » est normal pour une
+consultation qui n'a pas changé. « ← Retour à la liste » revient à la recherche
+en cours.
+
+**Suivi de la collecte.** Détail du dernier run et tableau « Légende des statuts de
+run », qui fait le lien avec le « Dernier résultat » de la tâche planifiée Windows
+(voir « Codes de statut des runs » ci-dessous).
+
+**En cas d'erreur**, chaque bloc concerné affiche un encadré rouge qui dit ce qui ne
+va pas (API arrêtée, base indisponible…) et un bouton « Réessayer ». Le reste de la
+page reste utilisable.
+
+### Comment ça marche
+
+```
+Navigateur ──▶ ng serve (port 4200) ──/api/…──▶ API FastAPI (port 8000) ──▶ PostgreSQL
+                  │                                   ▲
+                  └── sert l'interface (HTML, JS)     │ écrit chaque matin
+                                             Collecteur (tâche planifiée)
+```
+
+1. Le navigateur charge l'interface depuis `ng serve` (port 4200).
+2. Pour chaque donnée, l'interface appelle une adresse `/api/…` sur ce même port.
+   `ng serve` transmet l'appel à l'API sur `http://127.0.0.1:8000`, en retirant
+   `/api` (fichier `frontend/proxy.conf.json`). Exemple :
+   `/api/consultations?acheteur=ports` → `http://127.0.0.1:8000/consultations?acheteur=ports`.
+3. L'API lit PostgreSQL en lecture seule et renvoie du JSON ; l'interface
+   l'affiche.
+4. Si l'appel échoue, un intercepteur unique
+   (`frontend/src/app/core/api-erreur.ts`) traduit l'erreur en message français :
+   API arrêtée (le proxy répond `502`), base indisponible (`503`), élément
+   introuvable (`404`)…
+
+L'interface ne fait **que lire** : aucun bouton ne modifie des données. Elle
+n'affiche que ce que le collecteur a déjà enregistré : les nouvelles consultations
+apparaissent après le run suivant du collecteur.
+
+### En cas de problème
+
+| Symptôme | Cause | Solution |
+|---|---|---|
+| `npm error enoent Could not read package.json: … pmmp_collector\package.json` | `npm start` lancé depuis la racine du projet au lieu de `frontend` | `cd frontend` (ou `cd pmmp_collector\frontend`), puis `npm start`. |
+| API : `[Errno 10048] error while attempting to bind on address ('127.0.0.1', 8000)` | L'API tourne **déjà** (autre terminal, lancement précédent) | Rien à faire : utiliser celle qui tourne (vérifier avec <http://127.0.0.1:8000/health>). |
+| Interface : `Port 4200 is already in use` | L'interface tourne **déjà** dans un autre terminal | Ouvrir <http://localhost:4200>. Sinon, arrêter l'autre (`Ctrl+C`) ou lancer sur un autre port : `npm start -- --port 4300`. |
+| `'ng' n'est pas reconnu…` ou `Cannot find module '@angular/…'` | Dépendances non installées | Dans `frontend` : `npm install`, puis `npm start`. |
+| Message sur la version de Node au lancement | Node trop ancien | Installer une version indiquée dans « Prérequis ». |
+| Encadré rouge « L'API ne répond pas » sur les pages | API arrêtée, ou lancée sur un autre port que 8000 | Lancer l'API (étape 2, commande rappelée dans l'encadré), puis « Réessayer ». |
+| « Base de données : indisponible », ou « la base de données est indisponible » | L'API tourne mais PostgreSQL ne répond pas | Vérifier le service (`Get-Service postgresql*`, §4.1) et `PMMP_DATABASE_URL` dans `.env`. |
+| « Aucune consultation ne correspond à ces critères » | Filtres trop restrictifs, ou base vide | « Réinitialiser la recherche ». Base vide : voir le tableau de bord (aucun run ?). |
+| « Aucun run enregistré » | Le collecteur n'a encore jamais tourné sur cette base | Normal avant le premier run (§6, §8). |
+| La page <http://localhost:4200> ne s'ouvre pas du tout | Interface non lancée, ou terminal 2 fermé | Refaire l'étape 3. |
+
+### Heures affichées
+
+Les heures sont celles de l'API, déjà en heure du Maroc (§12), affichées **sans
+reconversion par le navigateur**. Les bases de fuseaux horaires ne sont pas
+d'accord sur le Maroc : mesuré le 26/09/2026, Node (ICU tz 2026a) place le Maroc en
+UTC+1 le 5/11/2026, alors que PostgreSQL et Python (tzdata 2026.4) le placent en
+UTC+0. Reconvertir dans le navigateur aurait affiché certaines dates limites avec
+une heure d'écart. Voir `frontend/src/app/core/format.ts`.
+
+### Codes de statut des runs
+
+La page « Suivi de la collecte » affiche la correspondance entre le statut
+enregistré en base (`collecte_runs.statut`) et le code de sortie du collecteur
+(`LastTaskResult` de la tâche planifiée) : `succes` = 0, `echec` = 1,
+`refuse` = 2, `partiel` = 3. Le code 4 (un autre run déjà en cours) n'est jamais
+enregistré en base, donc jamais visible dans l'interface.
+
+### Tests
+
+```powershell
+cd pmmp_collector\frontend
+npm test            # tests unitaires (Vitest + jsdom, sans navigateur), une seule passe
+npx ng build        # vérifie que l'application compile (sortie dans frontend/dist/)
+```
+
+Les tests n'appellent jamais l'API réelle : les réponses sont simulées, au format
+exact de l'API.
+
+### Structure
+
+```
+frontend/
+├── proxy.conf.json          /api → http://127.0.0.1:8000 (ng serve)
+├── angular.json, package.json, tsconfig*.json
+└── src/
+    ├── styles.css           styles communs (couleurs et espacements en variables CSS)
+    └── app/
+        ├── app.*            mise en page : menu, bandeau « usage interne »
+        ├── app.routes.ts    pages
+        ├── core/            types de l'API, intercepteur d'erreurs, formatage, libellés
+        ├── services/        appels à l'API (consultations, collecte)
+        ├── shared/          composants communs (tableau, badges, états, run, santé)
+        └── pages/           une page par dossier ou fichier
+```
+
+`npm start` ne sert qu'au développement et à la démonstration, sur ce poste.
+Publier l'interface sur un serveur demanderait un serveur web qui transmette
+`/api/` à l'API, **et** d'abord l'authentification prévue au §12.
+
+## 14. Sauvegarde et réparation des données
+
+### Sauvegarde quotidienne
+
+`scripts/backup_db.ps1` sauvegarde `pmmp_veille` avec `pg_dump` (format `-Fc`) :
+
+- identifiants : `PMMP_DATABASE_URL` du `.env` (compte `pmmp_app`). Le mot de passe
+  n'est passé qu'au processus `pg_dump` : il n'est ni dans la tâche planifiée ni
+  sur le disque ;
+- fichiers : `storage/backups/pmmp_veille_<date>.dump` (ignorés par Git), les
+  **14 plus récents** sont gardés ;
+- journal : `storage/logs/backup_<date>.log` ; code de sortie `0` (fait) ou `1`
+  (échec, cause dans le journal).
+
+`pg_dump` ne fait que **lire** la base : il peut tourner pendant un run.
+
+**Tâche planifiée** `PMMP-Sauvegarde`, chaque jour à **11:30** (après la fenêtre de
+collecte et la limite de 5 h de `PMMP-Veille`). Enregistrée sur le PC de
+développement le 26/09 ; commande d'enregistrement en tête du script.
+
+```powershell
+# Sauvegarde immédiate, à la main (depuis la racine du projet)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup_db.ps1
+# État de la tâche
+Get-ScheduledTaskInfo -TaskName "PMMP-Sauvegarde"   # LastTaskResult 0 = sauvegarde faite
+# Restauration, dans une base VIDE créée au préalable (superutilisateur)
+& "C:\Program Files\PostgreSQL\18\bin\pg_restore.exe" -h localhost -U postgres -d <base_vide> --no-owner storage\backups\<fichier>.dump
+# Supprimer la tâche si besoin
+Unregister-ScheduledTask -TaskName "PMMP-Sauvegarde" -Confirm:$false
+```
+
+Vérifié le 26/09 : sauvegarde lancée par le Planificateur (résultat `0`), puis
+restauration dans une base jetable, identique à la base réelle (23 consultations,
+0 ligne d'historique, 3 runs).
+
+> ⚠️ Les sauvegardes restent **sur le même disque** que la base. Pour survivre à
+> une panne du PC, les copier ailleurs (partage réseau, stockage d'équipe).
+
+### Réparer des données après une correction de l'extracteur
+
+Quand `parsers.py` est corrigé, les consultations déjà en base ne sont relues par
+la collecte incrémentale que si elles changent sur le portail.
+`scripts/reparer_doublons.py` relit leurs **pages archivées** (`storage/raw_html/`)
+avec l'extracteur actuel : **aucune requête au portail**. Il corrige aujourd'hui
+`objet` et `lieu_execution`, sans ligne d'historique (c'est la correction d'une
+erreur de lecture, pas une modification publiée).
+
+```powershell
+.venv\Scripts\python scripts\reparer_doublons.py              # simulation : liste les changements
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\backup_db.ps1   # sauvegarder d'abord
+.venv\Scripts\python scripts\reparer_doublons.py --appliquer  # écrit en base (une transaction)
+```
+
+Appliqué le 26/09 : 26 valeurs corrigées (lieux « SALE SALE » et objets
+« début ... texte complet », défaut corrigé dans `parsers.py` le même jour).

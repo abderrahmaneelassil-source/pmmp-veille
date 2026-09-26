@@ -1,0 +1,197 @@
+<header class="entete-page">
+  <h1>Consultations</h1>
+  <p class="texte-discret">Appels d'offres collectés, échéance la plus proche d'abord.</p>
+</header>
+
+@let c = criteres();
+
+<section class="carte">
+  <form class="recherche" role="search" (ngSubmit)="rechercher()">
+    <label class="recherche__champ">
+      <span class="etiquette">Rechercher par</span>
+      <select (change)="changerChamp($any($event.target).value)" aria-label="Champ de recherche">
+        <option value="acheteur" [selected]="c.champ === 'acheteur'">Acheteur</option>
+        <option value="categorie" [selected]="c.champ === 'categorie'">Catégorie</option>
+      </select>
+    </label>
+    <label class="recherche__texte">
+      <span class="etiquette">Texte recherché</span>
+      <input
+        type="search"
+        [formControl]="texte"
+        [placeholder]="placeholder(c.champ)"
+        autocomplete="off"
+      />
+    </label>
+    <span
+      class="infobulle"
+      tabindex="0"
+      [attr.data-infobulle]="aideAvancee"
+      aria-describedby="aide-recherche-avancee"
+    >
+      <button type="button" class="bouton bouton--secondaire" disabled>Recherche avancée</button>
+    </span>
+    <span id="aide-recherche-avancee" class="sr-only">{{ aideAvancee }}</span>
+  </form>
+  <p class="texte-discret aide">
+    La recherche porte sur toute la base, dans le champ choisi : texte contenu, sans tenir compte
+    des majuscules. La recherche dans l'objet n'est pas encore disponible côté serveur.
+  </p>
+
+  <button
+    type="button"
+    class="bouton-lien"
+    [attr.aria-expanded]="panneauOuvert()"
+    aria-controls="filtres-avances"
+    (click)="panneauOuvert.set(!panneauOuvert())"
+  >
+    {{ panneauOuvert() ? '▾' : '▸' }} Filtres avancés
+    @if (nbAvances()) {
+      <span class="compteur">{{ nbAvances() }} actif{{ nbAvances() > 1 ? 's' : '' }}</span>
+    }
+  </button>
+
+  @if (panneauOuvert()) {
+    <div id="filtres-avances" class="filtres">
+      <label>
+        <span class="etiquette">Statut</span>
+        <select (change)="changerStatut($any($event.target).value)">
+          <option value="" [selected]="c.statut === null">Tous</option>
+          @for (s of statuts; track s.valeur) {
+            <option [value]="s.valeur" [selected]="c.statut === s.valeur">{{ s.libelle }}</option>
+          }
+        </select>
+      </label>
+      <label>
+        <span class="etiquette">Date limite du (inclus)</span>
+        <input
+          type="date"
+          [value]="c.du ?? ''"
+          (change)="changerDate('du', $any($event.target).value)"
+        />
+      </label>
+      <label>
+        <span class="etiquette">au (inclus)</span>
+        <input
+          type="date"
+          [value]="c.au ?? ''"
+          (change)="changerDate('au', $any($event.target).value)"
+        />
+      </label>
+      <label>
+        <span class="etiquette">Résultats par page</span>
+        <select (change)="changerTaille($any($event.target).value)">
+          @for (t of tailles; track t) {
+            <option [value]="t" [selected]="c.taille === t">{{ t }}</option>
+          }
+        </select>
+      </label>
+      <button type="button" class="bouton bouton--secondaire" (click)="reinitialiser()">
+        Réinitialiser
+      </button>
+    </div>
+    @if (datesIncoherentes()) {
+      <p class="alerte alerte--attention">
+        La date de début est après la date de fin : aucun résultat possible.
+      </p>
+    }
+  }
+</section>
+
+@let v = vue();
+<section class="carte" [attr.aria-busy]="v.etat.etat === 'chargement'">
+  @if (v.etat.etat === 'erreur') {
+    <app-erreur
+      [erreur]="v.etat.erreur"
+      titre="Impossible de charger les consultations"
+      (reessayer)="recharger()"
+    />
+  } @else if (v.etat.etat === 'chargement' && !v.precedent) {
+    <app-chargement />
+  } @else {
+    @let p = pagination();
+    <div class="ligne-titre ligne-titre--espacee">
+      <p class="resume-resultats" aria-live="polite">
+        @if (p) {
+          @if (p.total === 0) {
+            Aucun résultat
+          } @else {
+            Résultats {{ p.debut }}–{{ p.fin }} sur <strong>{{ p.total }}</strong>
+          }
+        } @else {
+          Mise à jour…
+        }
+      </p>
+      @if (p && p.total > 0) {
+        <label class="filtre-local">
+          <span class="etiquette"
+            >Filtrer l'objet — uniquement parmi les résultats affichés sur cette page</span
+          >
+          <input
+            type="search"
+            [value]="filtreObjet()"
+            (input)="filtreObjet.set($any($event.target).value)"
+            placeholder="Mot de l'objet (cette page seulement)"
+            autocomplete="off"
+          />
+        </label>
+      }
+    </div>
+
+    @if (p && p.total === 0) {
+      <div class="vide">
+        <p>Aucune consultation ne correspond à ces critères.</p>
+        <button type="button" class="bouton bouton--secondaire" (click)="reinitialiser()">
+          Réinitialiser la recherche
+        </button>
+      </div>
+    } @else if (p && p.debut === 0) {
+      <div class="vide">
+        <p>
+          Cette page n'existe pas : il y a {{ p.nbPages }} page{{ p.nbPages > 1 ? 's' : '' }} de
+          résultats.
+        </p>
+        <button type="button" class="bouton bouton--secondaire" (click)="allerPage(1)">
+          Aller à la première page
+        </button>
+      </div>
+    } @else {
+      @if (filtreObjet().trim()) {
+        <p class="texte-discret">
+          {{ lignes().length }} résultat{{ lignes().length > 1 ? 's' : '' }} de cette page
+          contiennent « {{ filtreObjet().trim() }} » dans l'objet. Les autres pages ne sont pas
+          filtrées.
+          <button type="button" class="bouton-lien" (click)="filtreObjet.set('')">
+            Effacer ce filtre
+          </button>
+        </p>
+      }
+      <div [class.estompe]="v.etat.etat === 'chargement'">
+        @if (lignes().length) {
+          <app-table-consultations [consultations]="lignes()" />
+        }
+      </div>
+      @if (p && p.nbPages > 1) {
+        <nav class="pagination" aria-label="Pagination">
+          <button
+            type="button"
+            class="bouton bouton--secondaire"
+            [disabled]="p.page <= 1"
+            (click)="allerPage(p.page - 1)"
+          >
+            ← Précédent
+          </button>
+          <span>Page {{ p.page }} sur {{ p.nbPages }}</span>
+          <button
+            type="button"
+            class="bouton bouton--secondaire"
+            [disabled]="p.page >= p.nbPages"
+            (click)="allerPage(p.page + 1)"
+          >
+            Suivant →
+          </button>
+        </nav>
+      }
+    }
+  }
+</section>

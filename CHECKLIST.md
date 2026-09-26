@@ -1,8 +1,35 @@
 # Checklist de vérification du collecteur PMMP — 25/09/2026 (après-midi)
 
 Branche `checklist-2026-09-25`, créée depuis `passation-2026-09-25` @ `ceae906`.
-**Aucun push, aucun merge.** Tous les crawls de cette vérification ont visé le
-**faux portail local** (127.0.0.1). Le vrai site n'a **jamais** été contacté.
+**Aucun push, aucun merge.** Les crawls de la vérification de l'après-midi ont visé
+le **faux portail local** (127.0.0.1). **Correction du 26/09** : ce n'est pas vrai
+pour toute la journée. Deux tests manuels `--force` (16:16 et 16:29) ont tourné sur
+le **vrai portail** (1 page, 10 consultations chacun), voir « Vérification directe
+de la base ».
+
+> **État au 26/09/2026 (après-midi) — ce qui a changé depuis cette checklist**
+> (détail : `REVUE_2026-09-26.md`). Le reste du document décrit l'état du 25/09.
+>
+> - **Premier run automatique** le 26/09 à 06:00 : déclenché à l'heure, mais **en
+>   échec** (circuit breaker : 3 coupures de connexion du portail après ≈ 800
+>   fiches, 14 pages de liste, 1 300 consultations listées). Aucune fiche lue
+>   n'avait été enregistrée : chaque consultation attendait son DCE, programmé
+>   après toutes les fiches. **Corrigé** (`2f1685a`, test
+>   `test_interrupted_run_keeps_details_already_read`).
+> - **Textes doublés** : lieu d'exécution de toutes les fiches (« SALE SALE ») et
+>   objet lu sur la liste. Extracteur **corrigé** (`abaf3eb`), base **réparée**
+>   (26 valeurs, `scripts/reparer_doublons.py`).
+> - **Sauvegarde** : **faite** (§13 ci-dessous n'est plus à jour) — tâche
+>   `PMMP-Sauvegarde` quotidienne à 11:30, restauration testée (README §14).
+> - **Chiffres** : base `pmmp_veille` = 23 consultations, 0 ligne d'historique,
+>   3 runs ; tests = **124 Python** (107 + 17 ignorés sans base) et **44 interface**
+>   (et non 109).
+> - **Ajoutés depuis** : API FastAPI en lecture seule (`api/`, README §12, avec
+>   `pmmp_app` en session lecture seule : risque accepté, contrairement à la
+>   conclusion ci-dessous qui recommandait un compte dédié) et interface Angular
+>   (`frontend/`, README §13).
+> - **Toujours ouverts** : aucune alerte en cas d'échec (§10), week-ends (§7), DCE
+>   derrière un formulaire non téléchargés, sauvegardes à copier hors du PC.
 
 Méthode : la checklist transmise a été appliquée point par point à ce projet.
 Pour chaque point : statut réel, preuve ou correction, et pour les manques
@@ -35,7 +62,7 @@ Deux environnements ont été utilisés :
 | 12 | Idempotence | ✅ base et DCE · ⚠️ HTML brut des pages de liste réécrit à chaque run |
 | 13 | Plan de reprise | ✅ documenté · ❌ **aucune sauvegarde automatique de la base** |
 | 14 | Documentation | ✅ PASSATION.md complétée, responsable indiqué |
-| DB | Base `pmmp_veille` réelle | ✅ schéma conforme, 14/14 droits · **vide : aucun run n'a encore eu lieu** |
+| DB | Base `pmmp_veille` réelle | ✅ schéma conforme, 14/14 droits · **mise à jour 25/09 18:23** : 20 consultations (2 runs `--force` réels), voir « Vérification directe » |
 
 Commits de cette vérification :
 
@@ -419,29 +446,61 @@ Connexion réelle : `pmmp_app@localhost:5432/pmmp_veille`, le 25/09/2026 à
 
 ### État réel des données
 
+> **Mise à jour — 25/09/2026 18:23 (Africa/Casablanca)**, reconnexion directe
+> `pmmp_app@localhost:5432/pmmp_veille` (requêtes `count(*)` + lecture de
+> `collecte_runs`, voir aussi `scripts/db_status.py` ajouté aujourd'hui pour
+> pouvoir refaire ce contrôle sans repasser par le Planificateur). Le texte
+> ci-dessous décrivait l'état à 16:00:35 (base vide) ; il a changé depuis, entre
+> autres à cause de cette même vérification : les tests manuels `--force` lancés
+> pendant l'audit (16:16 et 16:29) **ont tourné sur le vrai portail**
+> (`PMMP_BASE_URL` du `.env`, pas de faux portail local) et ont inséré des
+> données réelles.
+
 | Table | Lignes |
 |---|---|
-| `consultations` | **0** |
+| `consultations` | **20** |
 | `historique_modifications` | **0** |
-| `collecte_runs` | **0** |
+| `collecte_runs` | **2** |
 
-- **Dernier run** : **aucun**. `collecte_runs` est vide, `v_dernier_run_reussi`
-  renvoie `NULL`.
-- **Le run de ce matin n'a rien inséré, parce qu'il n'y a pas eu de run ce
-  matin.** La tâche `PMMP-Veille` démarre pour la première fois le **26/09/2026 à
-  06:00** (`NextRunTime`). Son seul déclenchement, **manuel, le 25/09 à 11:46**, a
-  été **refusé hors fenêtre** (`LastTaskResult = 2`), et un refus n'écrit rien en
-  base. `storage/logs/` est vide (le log de ce test a été supprimé après
-  l'audit). `storage/last_run.json` date du 24/09 à 20:52 (`echec`, `shutdown`,
-  `run_id` null).
+- **Dernier run réussi** : run `n°2`, `--force`, démarré 25/09 16:29:19, terminé
+  16:30:46 (`succes`, `finished`) — 2 pages, 10 consultations enregistrées, 0
+  écartées. Run `n°1` (mêmes caractéristiques) démarré 16:16:51, terminé
+  16:18:22. Les deux sont des tests manuels plafonnés (`--force` : 1 page, 10
+  fiches), sur le vrai portail, d'où 20 consultations en base et **aucune ligne
+  dans `historique_modifications`** (pas encore de deuxième passage sur les mêmes
+  fiches pour détecter un changement).
+- **Automatisation matinale — diagnostic et correction faits aujourd'hui.** La
+  tâche `PMMP-Veille` existe, est activée et correctement configurée (action,
+  répertoire de travail, déclencheur quotidien 06:00). Son seul déclenchement
+  réel avant cette vérification, le 25/09 à **11:46:35**, a bien eu lieu tout
+  seul (`NumberOfMissedRuns: 0`) mais **près de 6 h après l'heure prévue**, et a
+  donc été refusé hors fenêtre (`LastTaskResult = 2`) — sans écrire de ligne en
+  base (normal pour un refus) ni de fichier dans `storage/logs/` (anormal, voir
+  plus bas). **Cause retrouvée** : `WakeToRun` (« Réveiller l'ordinateur pour
+  exécuter cette tâche ») était **désactivé** sur la tâche ; combiné à
+  `StartWhenAvailable = True`, tout déclenchement manqué (PC éteint/en veille à
+  06:00) est rattrapé seulement au retour de l'utilisateur — largement après la
+  fin de la fenêtre 06:00–10:00, comme observé. **Corrigé** : `WakeToRun` est
+  maintenant `True` (`scripts/fix_task.ps1`, appliqué sans élévation, la tâche
+  appartenant à l'utilisateur courant). Un déclenchement de test via
+  `Start-ScheduledTask` (équivalent programmatique du clic droit ▸ Exécuter dans
+  le Planificateur, à la différence de `--force` qui court-circuite la
+  vérification de fenêtre du collecteur) a été fait à 18:26 : la tâche s'est bien
+  lancée, a écrit `storage/logs/run_20260925_182644.log`, et a correctement
+  refusé (hors fenêtre, il était 18:26) — **la chaîne tâche → script →
+  collecteur → log fonctionne**. Reste à confirmer par le premier déclenchement
+  **non manuel** dans la fenêtre : prochaine occasion, 26/09 à 06:00
+  (`NextRunTime`), **à condition que le PC soit en veille cette nuit-là et non
+  éteint** (`WakeToRun` ne réveille pas un PC complètement arrêté — seulement en
+  veille/veille prolongée). Si le PC est bien en veille, ce run devrait pour la
+  première fois produire une ligne `collecte_runs` avec `force = false`.
 - **Run bloqué en `en_cours`** : **aucun**.
 - **Lignes orphelines** : **0** (historique sans consultation : 0 ; historique
   avec un `run_id` inexistant : 0 ; doublons de clé naturelle : 0).
-- Détail : la séquence `consultations_id_seq` est à 3 alors que la table est vide.
-  Ce sont les `INSERT … RETURNING` des contrôles de droits (24/09 et 25/09), faits
-  en transaction annulée : une séquence PostgreSQL ne recule pas. Sans
-  conséquence ; `collecte_runs_id_seq` n'a jamais servi, donc le premier run
-  portera le n°1.
+- Détail : la séquence `consultations_id_seq` a dépassé 3 (contrôles de droits du
+  24/09 et 25/09 en transaction annulée, plus les 20 lignes réelles insérées
+  depuis) ; `collecte_runs_id_seq` en est à 2, les runs `--force` de l'audit lui
+  ayant servi les deux premiers numéros.
 
 ### Schéma réel comparé à `db/schema.sql` — ✅ conforme
 
@@ -484,14 +543,14 @@ rôle. Droits : `INSERT, SELECT, UPDATE` sur les 3 tables, `SELECT` sur la vue.
 
 ## Validation finale
 
-- ✅ Fonctionnel : vérifié sur faux portail, pages réelles capturées et 109 tests. **Jamais exécuté sur le vrai portail au-delà de la page 1 de la capture du 23/09.**
+- ✅ Fonctionnel : vérifié sur faux portail, pages réelles capturées et 109 tests. ~~Jamais exécuté sur le vrai portail au-delà de la page 1 de la capture du 23/09.~~ **Mise à jour 26/09** : 2 tests `--force` sur le vrai portail le 25/09, puis le run automatique du 26/09 (14 pages, en échec, voir l'encadré en tête).
 - ✅ Cas d'erreur testés (manquent : gros volume, perte de la base en cours de run)
 - ✅ Pas de mot de passe dans le code (ni dans l'historique Git)
 - ✅ Configuration externalisée
 - ✅ Logs disponibles (log par run, `collecte_runs`, `last_run.json`). Compteurs d'erreurs seulement dans le JSON `stats`.
 - ✅ Pas de doublons si relancé, en base comme pour les DCE. **Le HTML brut des pages de liste est réécrit à chaque run.**
-- ❌ Automatisation testée : chaque maillon a été testé (tâche déclenchée à la main, run dans la fenêtre sur faux portail, verrou, runs morts), **mais la tâche ne s'est jamais déclenchée à son heure réelle**. Première fois : 26/09 à 06:00.
-- ❌ Résultat contrôlé manuellement : **aucun résultat réel à contrôler**, `pmmp_veille` est vide. Seuls des résultats sur faux portail et fixtures ont été vérifiés (par requêtes SQL).
+- ⚠️ Automatisation testée : chaque maillon a été testé (tâche déclenchée à la main, run dans la fenêtre sur faux portail, verrou, runs morts). **Mise à jour 25/09 18:23** : cause du non-déclenchement dans la fenêtre trouvée (`WakeToRun` désactivé) et corrigée ; un déclenchement manuel via le Planificateur (`Start-ScheduledTask`) confirme que la chaîne tâche → script → collecteur → log fonctionne de bout en bout. **Reste à confirmer** : le premier déclenchement réellement autonome, dans la fenêtre, sans intervention — prochaine occasion le 26/09 à 06:00, si le PC est en veille (pas éteint) cette nuit-là.
+- ⚠️ Résultat contrôlé manuellement : **mise à jour 25/09 18:23** — `pmmp_veille` n'est plus vide (20 consultations, voir « Vérification directe » plus haut), mais ce sont des tests manuels `--force` sur le vrai portail, pas encore le résultat d'un run automatique planifié. Les résultats sur faux portail et fixtures restent par ailleurs vérifiés (par requêtes SQL).
 - ✅ Documentation disponible
 - ✅ Procédure de rollback disponible pour le code. **Pour les données, aucune sauvegarde n'existe.**
 
@@ -504,6 +563,9 @@ compte PostgreSQL en lecture seule à créer. Ce compte ne doit **pas** être
 schéma** : sans sauvegarde de la base et sans alerte en cas d'échec, une erreur ne
 serait ni rattrapable ni signalée.
 
-À savoir avant de la montrer : la base est **vide** jusqu'au premier run réel du
-26/09 à 06:00. D'ici là, l'API n'aurait rien à afficher, sauf à la brancher sur la
-base de test.
+À savoir avant de la montrer : **mise à jour 25/09 18:23** — la base n'est plus
+vide (20 consultations réelles, issues de deux tests manuels `--force`), une API
+en lecture seule aurait donc déjà quelque chose à afficher. Ce ne sont
+cependant pas encore des données issues d'un run automatique planifié ; le
+premier run non assisté est attendu le 26/09 à 06:00 (voir « Vérification
+directe » plus haut).

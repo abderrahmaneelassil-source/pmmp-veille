@@ -81,3 +81,33 @@ def test_real_listing_page_size_selector():
     pager = parse_listing_page(read(listing_pages[0]), BASE)["pager"]
     assert pager["page_size_name"] == "ctl0$CONTENU_PAGE$resultSearch$listePageSizeTop"
     assert pager["page_size"] == 10
+
+
+def _repete(valeur: str | None) -> bool:
+    """« SALE SALE » ou « début ... suite » : valeur lue deux fois (texte visible + info-bulle)."""
+    if not valeur:
+        return False
+    if "..." in valeur or "…" in valeur:
+        return True
+    mots = valeur.split()
+    moitie = len(mots) // 2
+    return len(mots) % 2 == 0 and moitie > 0 and mots[:moitie] == mots[moitie:]
+
+
+@pytest.mark.skipif(not (listing_pages and detail_pages), reason="pages réelles absentes")
+def test_info_bulle_non_dupliquee():
+    """Le portail répète chaque valeur dans une info-bulle cachée (div.info-bulle), après un
+    texte visible parfois tronqué (« ... »). Avant correction : « SALE SALE » sur 100 % des
+    fiches du run du 26/09. La liste et la fiche doivent aussi donner le même lieu, sinon une
+    fiche relue après un échec créerait un faux « rectificatif » dans l'historique."""
+    rows = {}
+    for path in listing_pages:
+        for r in parse_listing_page(read(path), BASE)["rows"]:
+            assert not _repete(r["objet"]), r["objet"]
+            assert not _repete(r["lieu_execution"]), r["lieu_execution"]
+            rows[(r["org_acronyme"], r["ref_consultation"])] = r
+    for path in detail_pages:
+        org, _, ref = path.stem.partition("__")
+        detail = parse_detail_page(read(path), BASE)
+        assert not _repete(detail["lieu_execution"]), (path.name, detail["lieu_execution"])
+        assert rows[(org, ref)]["lieu_execution"] == detail["lieu_execution"], path.name

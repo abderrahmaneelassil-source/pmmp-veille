@@ -47,6 +47,31 @@ def node_text(sel) -> str:
     return norm_text(" ".join(sel.xpath(".//text()[not(ancestor::script) and not(ancestor::style)]").getall()))
 
 
+# Le portail affiche chaque valeur deux fois : un texte visible, tronqué si long et
+# suivi de « ... » (span/a.info-suite), puis la valeur COMPLÈTE dans une info-bulle
+# cachée (div.info-bulle). Tout lire donnait « SALE SALE » ou « début ... texte complet ».
+_INFO_BULLE = "contains(concat(' ', normalize-space(@class), ' '), ' info-bulle ')"
+_INFO_SUITE = "contains(concat(' ', normalize-space(@class), ' '), ' info-suite ')"
+
+
+def _visible_text(sel) -> str:
+    """Texte hors info-bulle et hors « ... » de troncature."""
+    return norm_text(" ".join(sel.xpath(
+        ".//text()[not(ancestor::script) and not(ancestor::style) "
+        f"and not(ancestor::*[{_INFO_BULLE} or {_INFO_SUITE}])]"
+    ).getall()))
+
+
+def value_text(sel) -> str:
+    """Valeur affichée par le portail : l'info-bulle (texte complet) si elle existe,
+    sinon le texte visible."""
+    for bulle in sel.xpath(f".//*[{_INFO_BULLE}]"):
+        text = node_text(bulle)
+        if text:
+            return text
+    return _visible_text(sel)
+
+
 def first_date(text: str | None) -> str | None:
     m = DATE_RE.search(text or "")
     return m.group(0) if m else None
@@ -83,18 +108,21 @@ def extract_labelled(scope) -> dict[str, str]:
         value = ""
         parent = lab.xpath("..")
         if parent and len([x for x in parent[0].xpath(LABEL_XPATH) if _is_label(x)]) == 1:
-            ptxt = node_text(parent[0])
-            value = ptxt[len(ltxt):] if ptxt.startswith(ltxt) else ptxt.replace(ltxt, "", 1)
+            if parent[0].xpath(f".//*[{_INFO_BULLE}]"):
+                value = value_text(parent[0])  # le libellé n'est jamais dans l'info-bulle
+            if not value.strip(" :"):
+                ptxt = _visible_text(parent[0])
+                value = ptxt[len(ltxt):] if ptxt.startswith(ltxt) else ptxt.replace(ltxt, "", 1)
         if not value.strip(" :"):
             sib = lab.xpath("following-sibling::*[1]")
             if sib and not _is_label(sib[0]):
-                value = node_text(sib[0])
+                value = value_text(sib[0])
         if not value.strip(" :") and parent and node_text(parent[0]) == ltxt:
             # Libellé seul dans son bloc (fiche détail réelle : <div id="panel..."><div class="intitule">
             # Date et heure limite ... :</div></div><div class="content-bloc">12/11/2026 10:00</div>).
             sib = parent[0].xpath("following-sibling::*[1]")
             if sib and not _is_label(sib[0]):
-                value = node_text(sib[0])
+                value = value_text(sib[0])
         value = norm_text(value).lstrip(": ").strip()
         if value:
             out[key] = value
@@ -181,7 +209,7 @@ def parse_listing_row(row, page_url: str) -> dict:
         node = row.xpath(f".//*[contains(@id,'{fragment}')]")
         if not node:
             return None
-        txt = node_text(node[0])
+        txt = value_text(node[0])
         return re.sub(r"^[^:]{1,40}:\s*", "", txt) if ":" in txt[:40] else (txt or None)
 
     dl_node = row.xpath(".//*[contains(@class,'dateEnd') or contains(@class,'cloture')]")

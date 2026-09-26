@@ -15,3 +15,10 @@ storage/logs/*
 !storage/**/.gitkeep
 # fixtures/live/ EST versionné : c'est le jeu de test réel pour la passation.
 .idea/
+# Sorties et outils ponctuels des sessions de diagnostic (restent sur le disque, hors dépôt)
+scripts/*_output.txt
+scripts/commit_msg_*.txt
+scripts/do_commits.bat
+scripts/check_env.*
+scripts/verify_api.*
+# Sauvegardes de la base (scripts/backup_db.ps1) : déjà couvertes par storage/*

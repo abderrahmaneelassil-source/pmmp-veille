@@ -1,0 +1,167 @@
+<a class="lien-retour" routerLink="/consultations" [queryParams]="retour()">← Retour à la liste</a>
+
+@let etat = consultation();
+@if (etat.etat === 'chargement') {
+  <app-chargement />
+} @else if (etat.etat === 'erreur' && etat.erreur.type === 'introuvable') {
+  <section class="carte page-erreur">
+    <h1>Consultation introuvable</h1>
+    <p>
+      Aucune consultation ne correspond à la référence
+      <code>{{ cle().org }}/{{ cle().ref }}</code
+      >. Le lien est peut-être incorrect.
+    </p>
+    <a class="bouton" routerLink="/consultations">Retour à la liste des consultations</a>
+  </section>
+} @else if (etat.etat === 'erreur') {
+  <app-erreur
+    [erreur]="etat.erreur"
+    titre="Impossible de charger la consultation"
+    (reessayer)="recharger()"
+  />
+} @else {
+  @let c = etat.donnees;
+  <header class="entete-page">
+    <div class="ligne-titre">
+      <app-badge [info]="statut(c)" />
+      @if (c.reference) {
+        <span class="texte-discret">Réf. {{ c.reference }}</span>
+      }
+      <span class="texte-discret">· {{ c.org_acronyme }}/{{ c.ref_consultation }}</span>
+    </div>
+    <h1 class="titre-objet">{{ c.objet }}</h1>
+    @if (lien(c.url_detail); as url) {
+      <a class="bouton" [href]="url" target="_blank" rel="noopener noreferrer"
+        >Ouvrir sur le portail ↗</a
+      >
+    }
+  </header>
+
+  <div class="grille-detail">
+    <section class="carte">
+      <h2>Informations</h2>
+      <dl class="infos infos--colonne">
+        <div>
+          <dt>Acheteur</dt>
+          <dd>{{ c.acheteur }}</dd>
+        </div>
+        <div>
+          <dt>Catégorie</dt>
+          <dd>{{ c.categorie ?? '—' }}</dd>
+        </div>
+        <div>
+          <dt>Type de procédure</dt>
+          <dd>{{ c.type_procedure ?? '—' }}</dd>
+        </div>
+        <div>
+          <dt>Lieu d'exécution</dt>
+          <dd>{{ c.lieu_execution ?? '—' }}</dd>
+        </div>
+        <div>
+          <dt>Date de publication</dt>
+          <dd>{{ c.date_publication | dateCourte }}</dd>
+        </div>
+        <div>
+          <dt>Date limite de dépôt</dt>
+          <dd>
+            <strong>{{ c.date_limite_depot | dateHeure }}</strong>
+            <span class="texte-discret">{{ c.date_limite_depot | delaiRestant }}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Réservé aux PME</dt>
+          <dd>{{ ouiNon(c.reservation_pme) }}</dd>
+        </div>
+        <div>
+          <dt>Réponse électronique exigée</dt>
+          <dd>{{ ouiNon(c.reponse_electronique) }}</dd>
+        </div>
+        <div>
+          <dt>Résultat</dt>
+          <dd>{{ c.resultat ?? 'Non publié' }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <div class="colonne">
+      <section class="carte">
+        <h2>Dossier de consultation (DCE)</h2>
+        <p>Statut : {{ dce(c) }}</p>
+        @if (c.dce_urls.length) {
+          <ul class="liste-simple">
+            @for (u of c.dce_urls; track $index) {
+              <li>
+                @if (lien(u); as url) {
+                  <a [href]="url" target="_blank" rel="noopener noreferrer"
+                    >Lien DCE {{ c.dce_urls.length > 1 ? $index + 1 : '' }} ↗</a
+                  >
+                } @else {
+                  <span class="texte-discret">Lien non valide : {{ u }}</span>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="texte-discret">Aucun lien DCE enregistré.</p>
+        }
+      </section>
+
+      <section class="carte">
+        <h2>Suivi par le collecteur</h2>
+        <dl class="infos infos--colonne">
+          <div>
+            <dt>Première collecte</dt>
+            <dd>{{ c.premiere_vue_le | dateHeure }}</dd>
+          </div>
+          <div>
+            <dt>Dernière fois vue sur le portail</dt>
+            <dd>{{ c.derniere_vue_le | dateHeure }}</dd>
+          </div>
+          <div>
+            <dt>Dernière mise à jour</dt>
+            <dd>{{ c.mis_a_jour_le | dateHeure }}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  </div>
+
+  <section class="carte">
+    <h2>Historique des modifications</h2>
+    @let h = historique();
+    @if (h.etat === 'chargement') {
+      <app-chargement />
+    } @else if (h.etat === 'erreur') {
+      <app-erreur
+        [erreur]="h.erreur"
+        titre="Impossible de charger l'historique"
+        (reessayer)="recharger()"
+      />
+    } @else if (h.donnees.length === 0) {
+      <p class="vide">
+        Aucune modification détectée depuis la première collecte de cette consultation.
+      </p>
+    } @else {
+      <ol class="frise">
+        @for (m of h.donnees; track $index) {
+          <li class="frise__etape">
+            <div class="ligne-titre">
+              <app-badge [info]="typeEvenement(m)" />
+              <strong>{{ champ(m) }}</strong>
+              <span class="texte-discret">{{ m.detecte_le | dateHeure }}</span>
+              @if (m.run_id !== null) {
+                <span class="texte-discret">· run n° {{ m.run_id }}</span>
+              }
+            </div>
+            <p class="frise__valeurs">
+              <span class="valeur-ancienne">{{ valeur(m, m.ancienne_valeur) }}</span>
+              <span aria-hidden="true">→</span>
+              <span class="sr-only">devient</span>
+              <span class="valeur-nouvelle">{{ valeur(m, m.nouvelle_valeur) }}</span>
+            </p>
+          </li>
+        }
+      </ol>
+    }
+  </section>
+}
