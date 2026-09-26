@@ -31,9 +31,14 @@ from pmmp_collector.storage import DceStore, HtmlArchiver, consultation_key, fil
 
 logger = logging.getLogger(__name__)
 
+# Priorités (la plus haute passe d'abord) : pagination, puis une consultation à la fois
+# (fiche puis ses DCE). Une consultation n'est enregistrée qu'après ses DCE : si les DCE
+# passaient après toutes les fiches, un arrêt en cours de run (circuit breaker, fin de
+# fenêtre, PC éteint) perdait toutes les fiches déjà lues (run du 26/09 : ≈ 800 fiches
+# lues, 0 enregistrée). Avec DCE > fiche, un arrêt ne perd que la consultation en cours.
 PRIORITY_LISTING = 10
+PRIORITY_DCE = 5
 PRIORITY_DETAIL = 0
-PRIORITY_DCE = -5
 
 
 def _truthy(value) -> bool:

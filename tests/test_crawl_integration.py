@@ -59,6 +59,7 @@ def listing(page_size: int, deadlines: dict) -> bytes:
 
 class FakePortal(BaseHTTPRequestHandler):
     detail_status = 200  # 503 -> panne simulée sur les fiches détail
+    details_ok = None  # N -> les N premières fiches répondent, puis panne du site (tout en 503)
     detail_body = None  # None -> fixtures/synthetic/detail_987654.html
     deadlines: dict = {}  # ref -> date limite affichée dans la liste (défaut DEADLINE)
     log: list = []
@@ -82,10 +83,13 @@ class FakePortal(BaseHTTPRequestHandler):
             elif self.path.startswith("/liste.html"):
                 self._reply(200, listing(int(form.get(SIZE_SELECT, 10)), cls.deadlines))
             elif "EntrepriseDetailsConsultation" in self.path:
-                if cls.detail_status != 200:
-                    self._reply(cls.detail_status, b"<html>Service indisponible</html>")
+                if cls.detail_status != 200 or cls._panne():
+                    self._reply(cls.detail_status if cls.detail_status != 200 else 503,
+                                b"<html>Service indisponible</html>")
                 else:
                     self._reply(200, cls.detail_body or DETAIL.encode("utf-8"))
+            elif "Dce" in self.path and cls._panne():
+                self._reply(503, b"<html>Service indisponible</html>")
             elif "Dce" in self.path:
                 self._reply(200, b"PK\x03\x04fake", "application/zip", 'attachment; filename="DCE.zip"')
             else:
@@ -93,6 +97,12 @@ class FakePortal(BaseHTTPRequestHandler):
         finally:
             with cls.lock:
                 cls.inflight -= 1
+
+    @classmethod
+    def _panne(cls) -> bool:
+        """Panne du site simulée : plus rien ne répond après details_ok fiches servies."""
+        served = sum("EntrepriseDetailsConsultation" in r["path"] for r in cls.log)
+        return cls.details_ok is not None and served > cls.details_ok
 
     def _reply(self, status, body, ctype="text/html; charset=utf-8", disposition=None):
         self.send_response(status)
@@ -113,6 +123,7 @@ class FakePortal(BaseHTTPRequestHandler):
 def portal():
     FakePortal.log, FakePortal.inflight, FakePortal.max_inflight = [], 0, 0
     FakePortal.detail_status, FakePortal.detail_body, FakePortal.deadlines = 200, None, {}
+    FakePortal.details_ok = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakePortal)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
@@ -230,6 +241,29 @@ def test_circuit_breaker_stops_real_crawl(portal, tmp_path):
     assert summary["raison"] == "circuit_breaker"
     assert "3 problèmes consécutifs" in summary["circuit_breaker"]
     assert "CIRCUIT BREAKER DÉCLENCHÉ" in proc.stderr
+
+
+def test_interrupted_run_keeps_details_already_read(portal, tmp_path):
+    """Incident du 26/09 : ≈ 800 fiches lues, puis le site coupe toutes les connexions ->
+    circuit breaker, et AUCUNE fiche lue enregistrée : chaque consultation attendait son DCE,
+    programmé après toutes les fiches. Les DCE passent maintenant avant les fiches suivantes :
+    toute fiche lue avant la panne doit être enregistrée avec ses données détaillées (au
+    pire avec un DCE en échec), et le run s'arrête bien."""
+    FakePortal.details_ok = 3
+    proc, summary = run_crawl(portal, tmp_path, "--force")
+    assert proc.returncode == 1 and summary["raison"] == "circuit_breaker", proc.stderr[-3000:]
+
+    items = {json.loads(line)["ref_consultation"]: json.loads(line) for line in
+             (tmp_path / "storage" / "test_items.jsonl").read_text(encoding="utf-8").splitlines()}
+    chemins = [r["path"] for r in FakePortal.log if "Details" in r["path"] or "Dce" in r["path"]]
+    fiches = [c for c in chemins if "EntrepriseDetailsConsultation" in c]
+    lues = [f.split("refConsultation=")[1].split("&")[0] for f in fiches[:3]]  # servies avant la panne
+    for ref in lues:
+        assert ref in items and items[ref]["dce_statut"] != "echec_fiche_detail", (ref, items.get(ref))
+        assert items[ref]["lieu_execution"] == "Tiznit", items[ref]  # champ présent sur la fiche seulement
+    assert sum(i["dce_statut"] == "telecharge" for i in items.values()) >= 2
+    # Les DCE sont demandés au fil des fiches, pas tous à la fin.
+    assert chemins.index(next(c for c in chemins if "Dce" in c)) < chemins.index(fiches[2]), chemins
 
 
 def test_nominal_crawl_respects_collection_rules(portal, tmp_path):
