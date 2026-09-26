@@ -93,6 +93,57 @@ export function libelleRaison(raison: string | null): string {
   return RAISONS_RUN[raison] ?? raison;
 }
 
+export interface RaisonResumee {
+  resume: string;
+  /** Texte technique complet (URL, exceptions), affiché replié ; null si le résumé suffit. */
+  detail: string | null;
+}
+
+const LONGUEUR_MAX_RAISON = 120;
+
+/**
+ * Raison de fin lisible. Le circuit breaker enregistre en base le détail brut de ses
+ * 3 derniers problèmes (run du 26/09 : 974 caractères d'URL et de traces Twisted) :
+ * on en tire un résumé, le détail reste consultable.
+ */
+export function resumerRaison(raison: string | null): RaisonResumee {
+  if (!raison || RAISONS_RUN[raison]) {
+    return { resume: libelleRaison(raison), detail: null };
+  }
+  const consecutifs = /^(\d+) problèmes consécutifs/.exec(raison);
+  if (consecutifs) {
+    const causes = [
+      /ConnectionLost|ConnectionRefused|ConnectionDone|connexion/i.test(raison) &&
+        'connexion coupée par le site',
+      /Timeout|timed out|délai/i.test(raison) && 'délai de réponse dépassé',
+      /HTTP 5\d\d/.test(raison) && 'erreurs du serveur (HTTP 5xx)',
+      /réponse lente/.test(raison) && 'réponses trop lentes',
+    ].filter(Boolean);
+    const cause = causes.length ? ` (${causes.join(', ')})` : '';
+    return {
+      resume: `Arrêt de sécurité : ${consecutifs[1]} problèmes consécutifs sur le portail${cause}`,
+      detail: raison,
+    };
+  }
+  const refus = /^HTTP (403|429)\b/.exec(raison);
+  if (refus) {
+    return {
+      resume: `Arrêt immédiat : le site refuse ou limite nos requêtes (HTTP ${refus[1]})`,
+      detail: raison,
+    };
+  }
+  if (raison.startsWith('interrompu')) {
+    return {
+      resume: 'Run interrompu (PC éteint, mis en veille ou processus arrêté)',
+      detail: raison,
+    };
+  }
+  if (raison.length > LONGUEUR_MAX_RAISON) {
+    return { resume: `${raison.slice(0, LONGUEUR_MAX_RAISON)}…`, detail: raison };
+  }
+  return { resume: raison, detail: null };
+}
+
 // Compteurs pmmp/*_errors (spiders/pmmp.py, pipelines.py), sans le préfixe « pmmp/ »
 const ERREURS_RUN: Record<string, string> = {
   listing_errors: 'Pages de liste en erreur',

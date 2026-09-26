@@ -112,6 +112,29 @@ describe('pages Tableau de bord, Suivi de la collecte, Feuille de route', () => 
     expect(el.querySelectorAll('.table--legende tbody tr').length).toBe(6); // la légende reste lisible
   });
 
+  it("tableau de bord : raison d'arrêt résumée, détail technique replié", async () => {
+    const brute =
+      '3 problèmes consécutifs : DownloadFailedError sur https://www.marchespublics.gov.ma/?page=x : ' +
+      '[<twisted.python.failure.Failure twisted.internet.error.ConnectionLost: Connection lost.>]';
+    await harness.navigateByUrl('/');
+    controle.expectOne((r) => r.url === '/api/consultations').flush(page([]));
+    controle.expectOne('/api/health').flush({ api: 'ok', base: 'ok' });
+    controle
+      .expectOne('/api/collecte/dernier-run')
+      .flush(dernierRun({ statut: 'echec', raison: brute }, '2026-09-25T16:30:46Z'));
+
+    const el = await rendu();
+    const dd = [...el.querySelectorAll('dt')].find(
+      (d) => texte(d) === 'Raison de fin',
+    )?.nextElementSibling;
+    expect(texte(dd)).toBe(
+      'Arrêt de sécurité : 3 problèmes consécutifs sur le portail (connexion coupée par le site)',
+    );
+    const repli = el.querySelector('details.repli--technique') as HTMLDetailsElement;
+    expect(repli.open).toBe(false);
+    expect(texte(repli)).toContain('ConnectionLost');
+  });
+
   it('feuille de route : phases 3 et 4, sans appel API', async () => {
     await harness.navigateByUrl('/feuille-de-route');
     const el = await rendu();

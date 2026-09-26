@@ -8,7 +8,7 @@ import {
   STATUT_RUN,
   libelleErreurRun,
   libelleMode,
-  libelleRaison,
+  resumerRaison,
   libelleStatut,
 } from '../core/libelles';
 import { Badge } from './badge';
@@ -59,7 +59,7 @@ const SEUIL_PANNE_HEURES = 24;
         </div>
         <div>
           <dt>Raison de fin</dt>
-          <dd>{{ raison(run.raison) }}</dd>
+          <dd>{{ raison().resume }}</dd>
         </div>
         <div>
           <dt>Pages de liste lues</dt>
@@ -74,6 +74,12 @@ const SEUIL_PANNE_HEURES = 24;
           <dd>{{ run.nb_ecartees ?? '—' }}</dd>
         </div>
       </dl>
+      @if (raison().detail; as detail) {
+        <details class="repli repli--technique">
+          <summary>Détail technique de l'arrêt</summary>
+          <p class="texte-technique">{{ detail }}</p>
+        </details>
+      }
       @if (erreurs().length) {
         <div class="alerte alerte--attention">
           <p class="alerte__titre">Erreurs comptées pendant ce run</p>
@@ -121,6 +127,10 @@ export class ResumeRun {
       .map(([cle, nombre]) => ({ cle, nombre, libelle: libelleErreurRun(cle) })),
   );
 
+  protected readonly raison = computed(() =>
+    resumerRaison(this.donnees().dernier_run?.raison ?? null),
+  );
+
   protected readonly panneSilencieuse = computed(
     () =>
       this.donnees().dernier_run !== null &&
@@ -132,9 +142,6 @@ export class ResumeRun {
   }
   protected mode(mode: string) {
     return libelleMode(mode);
-  }
-  protected raison(raison: string | null) {
-    return libelleRaison(raison);
   }
 }
 

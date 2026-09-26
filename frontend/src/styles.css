@@ -868,3 +868,21 @@ select:focus {
 .etat-avancement--prevu {
   color: var(--texte-discret);
 }
+
+/* Détail technique d'un arrêt de run (URL, exceptions) : replié, sans étirer la carte. */
+.repli--technique {
+  margin: 0 0 var(--espace-3);
+}
+
+.texte-technique {
+  font-family: var(--police-mono);
+  font-size: 0.78rem;
+  color: var(--texte-discret);
+  background: var(--fond);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon);
+  padding: var(--espace-3);
+  overflow-wrap: anywhere;
+  max-height: 16rem;
+  overflow-y: auto;
+}
